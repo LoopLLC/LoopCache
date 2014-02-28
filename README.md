@@ -35,7 +35,7 @@ But if we add or remove a node, most of the locations will change, invalidating 
 
 Here's a simple visualization for a 3-node cluster, with nodes labelled A, B, and C:
 
-0.....A...B..A..C..C..B..A..A..B..C....A....B..C..B..A..C..B..A..A..B..B..C..A..B....IntMax
+IntMin.....A...B..A..C..C..B..A..A..B..C....A....B..C..B..A..C..B..A..A..B..B..C..A..B....IntMax
 
 If you remove a node, objects under the removed locations simply shift up to the next node.  Adding a node shifts objects under the new locations to the new node.
 
