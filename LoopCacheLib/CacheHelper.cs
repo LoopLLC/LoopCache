@@ -162,6 +162,22 @@ namespace LoopCacheLib
             {
             }
 		}
+
+		public static IPEndPoint GetIPEndPoint(string hostname, int port)
+		{
+			IPAddress[] ips = Dns.GetHostAddresses(hostname);
+
+			foreach (IPAddress ip in ips)
+			{
+				if (ip.AddressFamily == AddressFamily.InterNetwork)
+				{
+					return new IPEndPoint(IPAddress.Parse(ip.ToString()), port);
+				}
+			}
+
+			throw new Exception("Unable to resolve address");
+		}
+
     }
 }
 

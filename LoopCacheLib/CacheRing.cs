@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Text;
 using System.Threading;
 
@@ -183,6 +184,11 @@ namespace LoopCacheLib
 
         /// <summary>The TCP port this node is bound to</summary>
         public int PortNumber { get; set; }
+
+		/// <summary>The node's endpoint.  This should be set explicilty once by the code
+		/// that creates the instance, since creating an endpoint requires a DNS lookup
+		/// </summary>
+		public IPEndPoint IPEndPoint { get; set; }
 
         /// <summary>The maximum number of bytes this node will store before ejecting
         /// older objects from memory</summary>

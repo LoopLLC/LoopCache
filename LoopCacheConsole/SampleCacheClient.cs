@@ -214,38 +214,45 @@ namespace LoopCacheConsole
 
 			// GetConfig binary response format:
 
-			// HostLen			int
-			// Host				byte[] UTF8 string
-			// Port				int
-			// MaxNumBytes		int
-			// NumLocations		int
-			// [Locations]		ints
+			// NumNodes			int
+			// [
+			// 	HostLen			int
+			// 	Host			byte[] UTF8 string
+			// 	Port			int
+			// 	MaxNumBytes		long
+			// 	NumLocations	int
+			// 	[Locations]		ints
+			// ]
 
 			using (MemoryStream ms = new MemoryStream(response.Item2))
 			{
 				using (BinaryReader reader = new BinaryReader(ms))
 				{
-					int hostLen = IPAddress.NetworkToHostOrder(reader.ReadInt32());
-					byte[] hostData = new byte[hostLen];
-					if (reader.Read(hostData, 0, hostLen) != hostLen)
+					int numNodes = IPAddress.NetworkToHostOrder(reader.ReadInt32());
+					for (int n = 0; n < numNodes; n++)
 					{
-						Console.WriteLine("Invalid GetConfig hostData");
-						return false;
-					}
-					string hostname = Encoding.UTF8.GetString(hostData);
-					int port = IPAddress.NetworkToHostOrder(reader.ReadInt32());
-					IPEndPoint ipep = GetIPEndPoint(hostname, port);
-					int maxNumBytes = IPAddress.NetworkToHostOrder(reader.ReadInt32());
-					int numLocations = IPAddress.NetworkToHostOrder(reader.ReadInt32());
-					for (int i = 0; i < numLocations; i++)
-					{
-						int location = IPAddress.NetworkToHostOrder(reader.ReadInt32());
-						if (this.sortedLocations.ContainsKey(location))
+						int hostLen = IPAddress.NetworkToHostOrder(reader.ReadInt32());
+						byte[] hostData = new byte[hostLen];
+						if (reader.Read(hostData, 0, hostLen) != hostLen)
 						{
-							Console.WriteLine("Already saw location {0}", location);
+							Console.WriteLine("Invalid GetConfig hostData");
 							return false;
 						}
-						this.sortedLocations.Add(location, ipep);
+						string hostname = Encoding.UTF8.GetString(hostData);
+						int port = IPAddress.NetworkToHostOrder(reader.ReadInt32());
+						IPEndPoint ipep = GetIPEndPoint(hostname, port);
+						long maxNumBytes = IPAddress.NetworkToHostOrder(reader.ReadInt64());
+						int numLocations = IPAddress.NetworkToHostOrder(reader.ReadInt32());
+						for (int i = 0; i < numLocations; i++)
+						{
+							int location = IPAddress.NetworkToHostOrder(reader.ReadInt32());
+							if (this.sortedLocations.ContainsKey(location))
+							{
+								Console.WriteLine("Already saw location {0}", location);
+								return false;
+							}
+							this.sortedLocations.Add(location, ipep);
+						}
 					}
 				}
 			}

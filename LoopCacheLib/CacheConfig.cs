@@ -19,6 +19,7 @@ namespace LoopCacheLib
 		public int ListenerPortNumber { get; set; }
 		public string MasterHostName { get; set; }
 		public int MasterPortNumber { get; set; }
+		public IPEndPoint MasterIPEndPoint { get; set; }
 
 		public bool IsDataNode
 		{

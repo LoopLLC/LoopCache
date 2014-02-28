@@ -73,7 +73,11 @@ namespace LoopCacheLib
 
 		/// <summary>A request from the master to a data node to change its configuration.
 		/// </summary>
-		ChangeConfig	 	= 10
+		ChangeConfig	 	= 10, 
+
+		/// <summary>A request from a data node to the master node to say it's alive and to 
+		/// get the configuration.</summary>
+		Register			= 11
 	}
 
 	public enum CacheResponseTypes : byte

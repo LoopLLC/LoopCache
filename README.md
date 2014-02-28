@@ -54,6 +54,121 @@ A: Because I don't want any dependencies on third party libraries, and I want th
 
 See LoopCacheLib\SampleCacheClient.cs for an example of how to talk to the server.
 
+### Requests
+
+The number in parantheses is the preceding byte for the message.
+
+- GetConfig (1)
+
+	Any node will respond.  Only master is totally reliable.
+
+	Responds with *Configuration* (see below)
+
+
+- NodeDown 			(2)
+	
+	Master only.  Clients report nodes that aren't responding.
+	
+	Request layout:
+
+		HostLen		int
+		Host		byte[] UTF8 string
+		Port		int
+
+- AddNode			(3)
+
+	Master only.  From admin console.
+
+- RemoveNode		(4)
+
+	Master only.  From admin console.
+
+- ChangeNode		(5)
+
+	Master only.  From admin console.
+
+- GetStats			(6)
+
+	Any node will respond
+
+- GetObject			(7)
+
+	Data nodes only
+
+	Request layout:
+
+		KeyLen		int
+		Key			byte[] UTF8 string
+
+- PutObject			(8)
+
+	Data nodes only.
+
+	Request Layout:
+
+		KeyLen		int
+		Key			byte[] UTF8 string
+		DataLen		int
+		Data		byte[]
+
+- DeleteObject	 	(9)
+
+	Data nodes only.
+
+	Request layout:
+
+		KeyLen		int
+		Key			byte[] UTF8 string
+
+- ChangeConfig	 	(10)
+	 ?
+
+### Responses
+
+- InvalidRequestType 	(1)
+
+	Unrecognized initial byte
+
+- NotMasterNode 		(2) 
+	
+	A master request was sent to a data node
+
+- NotDataNode 			(3)
+
+	A data node request was sent to the master
+
+- ObjectOk 				(4) 
+
+	Success response for GetObject
+
+	Response layout:
+
+	Data		byte[]
+
+- ObjectMissing 		(5)
+
+	Data node owns that key but doesn't have the object
+	
+- ReConfigure 			(6)
+
+	Requested an object this data node doesn't have, client configuration is stale
+
+	(Reponse layout same as *Configuration* below)
+
+- Configuration 		(7)
+
+	Response layout:
+
+		NumNodes			int
+		[
+			HostLen			int
+			Host			byte[] UTF8 string
+			Port			int
+			MaxNumBytes		int
+			NumLocations	int
+			[Locations]		ints
+		]
+
 ## Security
 
 For now the server is designed to run on a trusted network with well-behaved clients.  I wouldn't run a listener on a public IP.

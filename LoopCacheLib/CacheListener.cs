@@ -67,15 +67,97 @@ namespace LoopCacheLib
 					config.ListenerPortNumber);
 		}
 
+		/// <summary>Deserialize nodes</summary>
+		/// <remarks>If node locations are not pre-populated, this method
+		/// will also determine node locations for the ring before returning</remarks>
+		CacheRing DeserializeNodes(byte[] data)
+		{
+			CacheRing ring = new CacheRing();
+
+			bool hasLocations = true;
+
+			// Deserialize the config
+			using (MemoryStream ms = new MemoryStream(data))
+			{
+				using (BinaryReader reader = new BinaryReader(ms))
+				{
+					int numNodes = IPAddress.NetworkToHostOrder(reader.ReadInt32());
+					for (int n = 0; n < numNodes; n++)
+					{
+						CacheNode node = new CacheNode();
+						ring.Nodes.Add(node.GetName(), node);
+						int hostLen = FromNetwork(reader.ReadInt32());
+						byte[] hostData = new byte[hostLen];
+						if (reader.Read(hostData, 0, hostLen) != hostLen)
+						{
+							// TODO
+							return null;
+						}
+						node.HostName = Encoding.UTF8.GetString(hostData);
+						node.PortNumber = FromNetwork(reader.ReadInt32());
+						node.MaxNumBytes = FromNetwork(reader.ReadInt64());
+						int numLocations = FromNetwork(reader.ReadInt32());
+						if (numLocations == 0)
+						{
+							hasLocations = false;
+						}
+						else
+						{
+							for (int i = 0; i < numLocations; i++)
+							{
+								int location = IPAddress.NetworkToHostOrder(reader.ReadInt32());
+								ring.SortedLocations.Add(location, node);
+								node.Locations.Add(location);
+							}
+						}
+					}
+				}
+			}
+
+			if (!hasLocations)
+			{
+				ring.DetermineNodeLocations();
+				LookupEndPoints(ring);
+			}
+
+			return ring;
+		}
+
 		/// <summary>Register with the master and get the cache ring</summary>
 		CacheRing RegisterWithMaster()
 		{
-			CacheRing ring = null;
+			if (this.config.IsMaster && this.config.IsDataNode)
+			{
+				return this.config.Ring;
+			}
 
-			// TODO
-			//
+			CacheMessage request = new CacheMessage();
+			request.MessageType = (byte)CacheRequestTypes.Register;
+			
+			CacheMessage response = CacheHelper.SendRequest(request, 
+					this.config.MasterIPEndPoint);
+			
+			if (response.MessageType == (byte)CacheResponseTypes.Configuration)
+			{
+				return DeserializeNodes(response.Data);
+			}
+			else
+			{
+				CacheHelper.LogError("Unable to register with master");
 
-			return ring;
+				// TODO - What should we do about this?  Wait and retry?
+
+				return null;
+			}
+		}
+
+		/// <summary>Look up the IPs for the nodes and store them</summary>
+		void LookupEndPoints(CacheRing ring)
+		{
+			foreach (var node in ring.Nodes.Values)
+			{
+				node.IPEndPoint = CacheHelper.GetIPEndPoint(node.HostName, node.PortNumber);
+			}
 		}
 
 		/// <summary>
@@ -89,12 +171,26 @@ namespace LoopCacheLib
 
 			if (this.config.IsMaster)
 			{
+				// Don't bother with a DNS lookup for the master endpoint
+				this.config.MasterIPEndPoint = 
+					new IPEndPoint(IPAddress.Parse(this.config.ListenerIP), 
+							this.config.ListenerPortNumber);
+
+				// Figure out the node locations
 				this.config.Ring.DetermineNodeLocations();
 			}
 			else
 			{
+				// Lookup the master IP
+				this.config.MasterIPEndPoint = 
+					CacheHelper.GetIPEndPoint(config.MasterHostName, config.MasterPortNumber);
+
+				// Get the ring configuration from the master
 				this.config.Ring = RegisterWithMaster();
 			}
+
+			// Lookup IPs for the nodes
+			LookupEndPoints(this.config.Ring);
 
 			this.shouldRun = true;
 
@@ -177,6 +273,7 @@ namespace LoopCacheLib
 			}
 		}
 
+		/// <summary>Process a request message and generate a response message</summary>
         private CacheMessage ProcessRequest(CacheMessage request)
 		{
 			try
@@ -227,8 +324,7 @@ namespace LoopCacheLib
 			CacheMessage response = new CacheMessage();
 
             response.MessageType = (byte)CacheResponseTypes.Configuration;
-
-			// TODO - Custom binary format
+			response.Data = SerializeNodes(this.config.Ring, true);
 
 			return response;
 		}
@@ -303,17 +399,80 @@ namespace LoopCacheLib
 
 		}
 
+		int ToNetwork(int i)
+		{
+			return IPAddress.HostToNetworkOrder(i);
+		}
+
+		int FromNetwork(int i)
+		{
+			return IPAddress.NetworkToHostOrder(i);
+		}
+
+		long ToNetwork(long i)
+		{
+			return IPAddress.HostToNetworkOrder(i);
+		}
+
+		long FromNetwork(long i)
+		{
+			return IPAddress.NetworkToHostOrder(i);
+		}
+
+		byte[] GetBytes(string s)
+		{
+			return Encoding.UTF8.GetBytes(s);
+		}
+
+		string GetString(byte[] b)
+		{
+			return Encoding.UTF8.GetString(b);
+		}
+
 		/// <summary>Serializes the config for clients and other nodes</summary>
-		private byte[] SerializeConfig()
+		private byte[] SerializeNodes(CacheRing ring, bool includeLocations)
 		{
 			MemoryStream ms = new MemoryStream();
 
 			using (BinaryWriter w = new BinaryWriter(ms))
 			{
-				// TODO
-			}
+				// GetConfig binary response format:
 
-			return ms.ToArray();
+				// NumNodes			int
+				// [
+				// 	HostLen			int
+				// 	Host			byte[] UTF8 string
+				// 	Port			int
+				// 	MaxNumBytes		long
+				// 	NumLocations	int
+				// 	[Locations]		ints
+				// ]
+
+				w.Write(ToNetwork(ring.Nodes.Count));
+				foreach (var node in ring.Nodes.Values)
+				{
+					byte[] hostNameData = GetBytes(node.HostName);
+					w.Write(ToNetwork(hostNameData.Length));
+					w.Write(hostNameData);
+					w.Write(ToNetwork(node.PortNumber));
+					w.Write(ToNetwork(node.MaxNumBytes));
+
+					if (includeLocations)
+					{
+						w.Write(ToNetwork(node.Locations.Count));
+						foreach (var location in node.Locations)
+						{
+							w.Write(ToNetwork(location));
+						}
+					}
+					else
+					{
+						w.Write(ToNetwork((int)0));
+					}
+				}
+				w.Flush();
+				return ms.ToArray();
+			}
 		}
 
 		/// <summary>Starts the rebalancer</summary>
@@ -415,19 +574,19 @@ namespace LoopCacheLib
 
 					if (IsThisNode(node))
 					{
-						// This means the client had it right and this node had it wrong
-						return PutObject(keyString, objectData);
-
 						// The master is supposed to tell us about changes, but sometimes
 						// we might hear it from a client first.  Rabalance regardless.
 						StartRebalance();
+
+						// This means the client had it right and this node had it wrong
+						return PutObject(keyString, objectData);
 					}
 					else
 					{
 						// This means the client is still wrong
 						CacheMessage response = new CacheMessage();
 						response.MessageType = (byte)CacheResponseTypes.ReConfigure;
-						response.Data = SerializeConfig();
+						response.Data = SerializeNodes(this.config.Ring, true);
 						return response;
 					}
 				}
