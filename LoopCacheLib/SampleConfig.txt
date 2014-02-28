@@ -1,0 +1,31 @@
+# LoopCache sample configuration file
+#
+# All nodes need their own local config file.
+# There is a single master per cluster.
+# The master and data nodes can all be run on a single development machine
+# by starting listeners in different consoles, with different config files.
+#
+# Blank lines and lines starting with a hash mark are ignored
+
+# All instances need to know where the master is
+
+# Master	host:port			
+Master		localhost:12345	
+
+# The local listener.  Data nodes start by contacting master for the ring configuration, 
+# and then they scan the list of nodes for their own config using the host and port below.
+
+# Listener		host		ip:port				IsMaster Yes|No
+Listener		localhost	127.0.0.1:12345		Yes
+
+# Trace		On|Off		File
+Trace		On			C:\Loop\Logs\LoopCacheMaster.txt
+
+# Only the master needs nodes to be defined.  Nodes ask the master for their configuration, 
+# which only consists of MaxNumBytes for now.  The master listener can be a data node, simply
+# add it here, with the same listener port as in the Master line above.
+
+# Node	host:port			MaxNumBytes
+Node	localhost:12346		24Mb
+Node	localhost:12347		64Mb
+Node	localhost:12348		48Mb
