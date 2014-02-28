@@ -20,6 +20,25 @@ NOTE: This is not even close to functional yet!  It compiles, and some basic tes
 - Clients can be written in any language
 - Custom binary protocol
 
+## Binary Protocol
+
+The protocol is pretty simple.  It's a single byte for the message type (which API method you want to call), then an int for the length of the data, and then then data itself.
+
+[0] 	Message Type
+[1-4]	Length
+[5-X]	Data
+
+Some methods have their own formats for the Data, which are also generally pretty simple.  The pattern is usually to have a 32 bit integer for the length of any arbitrary data, then the data bytes.  Strings are always UTF8 encoded.
+
+Q: Why not use JSON?
+A: Because I don't want any dependencies on third party libraries, and I want this thing to be as fast as possible.
+
+See LoopCacheLib\SampleCacheClient.cs for an example of how to talk to the server.
+
+## Security
+
+For now the server is designed to run on a trusted network with well-behaved clients.  I wouldn't run a listener on a public IP.
+
 # Design Notes
 
 ## Master API:
@@ -55,7 +74,9 @@ NOTE: This is not even close to functional yet!  It compiles, and some basic tes
 	- Start migrating  (pushing) objects that shouldn’t be here
 - GetStats
 
-##	Node Configuration (stored on master, queried from nodes and clients on startup)
+##	Node Configuration 
+
+Stored on master, queried from nodes and clients on startup
 
 - Host Name
 - Port Number

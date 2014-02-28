@@ -212,7 +212,7 @@ namespace LoopCacheConsole
 				return false;
 			}
 
-			// Config binary format:
+			// GetConfig binary response format:
 
 			// HostLen			int
 			// Host				byte[] UTF8 string
@@ -303,11 +303,12 @@ namespace LoopCacheConsole
 
 		bool PutObject(string testKey, string testData)
 		{
-			// PutObject blob layout is 
-			// KeyLength:int 
-			// Key:byte[] 
-			// ObjectLength:int 
-			// Object:byte[]
+			// PutObject binary data format:
+			// 
+			// KeyLength		int 
+			// Key				byte[] UTF8 String 
+			// ObjectLength		int 
+			// Object			byte[]
 
 			byte[] message = null;
 			using (MemoryStream ms = new MemoryStream())
