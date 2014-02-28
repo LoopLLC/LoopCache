@@ -3,6 +3,9 @@ LoopCache
 
 A distributed key-value store, similar to memcached, written in C#
 
+Eric Z. Beard
+eric@loopfx.com
+
 NOTE: This is not even close to functional yet!  It compiles, and some basic tests pass.  That's it.
 
 ## High Level Requirements
@@ -19,6 +22,22 @@ NOTE: This is not even close to functional yet!  It compiles, and some basic tes
 - Run as a Windows Service or from the console
 - Clients can be written in any language
 - Custom binary protocol
+
+## Consistent Hashing
+
+I would suggest a quick google search for consistent hashing, there are some good articles out there that explain it pretty well.  
+
+The idea is that you want to spread objects out over a cluster of cache machines in a way that their assigned locations are somewhat stable when a node is added or removed.  We could use a simplistic approach and use a modulus of the hashed key like this:
+
+location = hash(key) % numServers
+
+But if we add or remove a node, most of the locations will change, invalidating nearly the entire cache.  By using consistent hashing, the number of keys that need to be moved is roughly the size of the newly added node's capacity.  We do this by creating a large number of virtual node locations on a 32-bit ring.  We hash a key and look for the next highest location on the ring to detemine which node owns that key.
+
+Here's a simple visualization for a 3-node cluster, with nodes labelled A, B, and C:
+
+0.....A...B..A..C..C..B..A..A..B..C....A....B..C..B..A..C..B..A..A..B..B..C..A..B....IntMax
+
+If you remove a node, objects under the removed locations simply shift up to the next node.  Adding a node shifts objects under the new locations to the new node.
 
 ## Binary Protocol
 
