@@ -8,8 +8,13 @@ namespace LoopCacheLib
 	/// </summary>
 	public class CacheMessage
 	{
+		/// <summary>The message type.</summary>
+		/// <remarks>For requests, this indicates which API method to call.  
+		/// For responses, it's the return value.  See CacheRequestTypes and 
+		/// CacheResponseTypes</remarks>
 		public byte MessageType { get; set; }
 
+		/// <summary>The length of the Data byte array</summary>
 		public int MessageLength 
 		{ 
 			get
@@ -19,6 +24,7 @@ namespace LoopCacheLib
 			}
 		}
 
+		/// <summary>The data packet</summary>
 		public byte[] Data { get; set; }
 
 		/// <summary>A convenience property for converting Data to and from a string</summary>
@@ -36,6 +42,7 @@ namespace LoopCacheLib
 		}
 	}
 
+	/// <summary>Cache request types.  These indicate which API method to call</summary>
 	public enum CacheRequestTypes : byte
 	{
 		/// <summary>A request for the node's current configuration</summary>
@@ -80,6 +87,7 @@ namespace LoopCacheLib
 		Register			= 11
 	}
 
+	/// <summary>Return codes for the API calls</summary>
 	public enum CacheResponseTypes : byte
 	{
 		/// <summary>The request type was not recognized</summary>
@@ -107,10 +115,41 @@ namespace LoopCacheLib
 		/// <summary>An unexpected error happened in the server</summary>
 		InternalServerError = 8, 
 
-		/// <summary>Key data looks corrupted<summary>
+		/// <summary>Key data looks corrupted</summary>
 		ReadKeyError = 9, 
 
 		/// <summary>Data looks corrupted</summary>
 		ReadDataError = 10
+	}
+
+	/// <summary>An exception thrown internally when processing messages</summary>
+	public class CacheMessageException : Exception
+	{
+		/// <summary>The type of response to send to the client</summary>
+		public byte ResponseType { get; set; }
+
+		/// <summary></summary>
+		public CacheMessageException() : base() {}
+
+		/// <summary></summary>
+		public CacheMessageException(string msg) : base(msg) {}
+
+		/// <summary></summary>
+		public CacheMessageException(byte responseType, string msg) : base(msg) 
+		{
+			this.ResponseType = responseType;
+		}
+
+		/// <summary></summary>
+		public CacheMessageException(CacheResponseTypes responseType, string msg) : base(msg) 
+		{
+			this.ResponseType = (byte)responseType;
+		}
+
+		/// <summary></summary>
+		public CacheMessageException(CacheResponseTypes responseType) : base() 
+		{
+			this.ResponseType = (byte)responseType;
+		}
 	}
 }

@@ -113,13 +113,14 @@ namespace LoopCacheConsole
             return (a ^ b ^ c ^ d);
         }
 
-		private Tuple<byte, byte[]> SendMessage(byte messageType, byte[] data)
+		private Tuple<byte, byte[]> SendMessage(IPEndPoint server, 
+				byte messageType, byte[] data)
 		{
             // Create a new client to talk to the server
 			using (TcpClient client = new TcpClient())
 			{
 				// Connect to the server
-				client.Connect(masterNode);
+				client.Connect(server);
 
 				using (NetworkStream stream = client.GetStream())
 				{
@@ -134,6 +135,11 @@ namespace LoopCacheConsole
 					BinaryReader r = new BinaryReader(stream);
 					byte responseType = r.ReadByte();
 					int responseLength = IPAddress.NetworkToHostOrder(r.ReadInt32());
+					if (responseLength > MaxLength)
+					{
+						throw new Exception(
+							"SendMessage got a response that exceeded max length");
+					}
 					byte[] responseData = r.ReadBytes(responseLength);
 
 					return new Tuple<byte, byte[]>(responseType, responseData);
@@ -162,20 +168,22 @@ namespace LoopCacheConsole
 		public const byte Response_ObjectMissing 		= 5;
 		public const byte Response_ReConfigure 			= 6;
         public const byte Response_Configuration 		= 7;
+		public const byte Response_InternalServerError 	= 8;
+		public const byte Response_ReadKeyError 		= 9;
+		public const byte Response_ReadDataError 		= 10;
+
+		public const int MaxLength = 1024 * 1024 * 1024; // 1Gb
 
 		public bool Test()
 		{
-			string key = "abc";
-			string data = "Hello, World!";
-
 			if (GetConfig() &&
 				NodeDown() && 
 				AddNode() && 
 				RemoveNode() && 
 				ChangeNode() && 
 				GetStats() && 
-				PutObject(key, data) && 
-				GetObject(key, data) &&
+				PutObject("abc", "Hello, World!") && 
+				GetObject("abc", "Hello, World!") &&
 				DeleteObject() && 
 				ChangeConfig() && 
 				TestThreads())
@@ -199,7 +207,7 @@ namespace LoopCacheConsole
 		bool GetConfig() 
 		{
 			byte[] data = new byte[0];
-			var response = SendMessage(Request_GetConfig, data);
+			var response = SendMessage(this.masterNode, Request_GetConfig, data);
 			if (response == null)
 			{
 				Console.WriteLine("GetConfig got a null response");
@@ -285,14 +293,12 @@ namespace LoopCacheConsole
 			return true;
 		}
 
-		bool GetObject(string key, string data)
+		bool GetObject(string key, string expectedValue)
 		{
-			return true;
-
 			// Make sure the data we get back matches what's passed in
+			IPEndPoint node = GetNodeForKey(key);
 
-			/*
-			var response = SendMessage(Request_GetObject, data);
+			var response = SendMessage(node, Request_GetObject, Encoding.UTF8.GetBytes(key));
 			if (response == null)
 			{
 				Console.WriteLine("GetObject got a null response");
@@ -305,7 +311,16 @@ namespace LoopCacheConsole
 						response.Item1, expected);
 				return false;
 			}
-			*/
+
+			string objectString = Encoding.UTF8.GetString(response.Item2);
+			if (objectString.Equals(expectedValue)) return true;
+			else
+			{
+				Console.WriteLine("Got [{0}] instead of [{1}]", 
+					objectString, expectedValue);
+				return false;
+			}
+			
 		}
 
 		bool PutObject(string testKey, string testData)
@@ -332,7 +347,8 @@ namespace LoopCacheConsole
 				message = ms.ToArray();
 			}
 
-			var response = SendMessage(Request_PutObject, message);
+			IPEndPoint node = GetNodeForKey(testKey);
+			var response = SendMessage(node, Request_PutObject, message);
 			if (response == null)
 			{
 				Console.WriteLine("PutObject got a null response");
@@ -341,7 +357,7 @@ namespace LoopCacheConsole
 			byte expected = Response_ObjectOk;
 			if (response.Item1 != expected)
 			{
-				Console.WriteLine("Got {0} instead of {1} for PutObject", 
+				Console.WriteLine("Got response type {0} instead of {1} for PutObject", 
 						response.Item1, expected);
 				return false;
 			}

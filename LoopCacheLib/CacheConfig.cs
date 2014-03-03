@@ -10,17 +10,37 @@ namespace LoopCacheLib
 	/// <summary>Contains helper methods for loading ring configuration</summary>
 	public class CacheConfig
 	{
+		/// <summary>True if the process should log trace messages</summary>
 		public bool IsTraceEnabled { get; set; }
+
+		/// <summary>Full path to the trace log file</summary>
 		public string TraceFilePath { get; set; }
+
+		/// <summary>True if this is a master node</summary>
 		public bool IsMaster { get; set; }
+
+		/// <summary>The cache ring, with node configuration for the whole cluster</summary>
 		public CacheRing Ring { get; set; }
+
+		/// <summary>The host name for this process</summary>
 		public string ListenerHostName { get; set; }
+
+		/// <summary>The IP for this process to listen on</summary>
 		public string ListenerIP { get; set; }
+
+		/// <summary>The port number for this process to listen on</summary>
 		public int ListenerPortNumber { get; set; }
+
+		/// <summary>The host name of the master node</summary>
 		public string MasterHostName { get; set; }
+
+		/// <summary>The port number for the master node</summary>
 		public int MasterPortNumber { get; set; }
+
+		/// <summary>The IP end point for the master node</summary>
 		public IPEndPoint MasterIPEndPoint { get; set; }
 
+		/// <summary>Returns true if this is a data node</summary>
 		public bool IsDataNode
 		{
 			get
@@ -196,6 +216,7 @@ namespace LoopCacheLib
 			return config;
 		}
 
+		/// <summary>Split a line on spaces and tabs, removing empty entries</summary>
 		public static string[] SplitLine(string line)
 		{
 			// Split the line up on white space and remove empty entries
@@ -205,6 +226,7 @@ namespace LoopCacheLib
 			return tokens;
 		}
 
+		/// <summary>Parse a line of the config file with a Node configuration</summary>
 		public static CacheNode ParseNodeLine(string line)
 		{
 			string[] tokens = SplitLine(line);

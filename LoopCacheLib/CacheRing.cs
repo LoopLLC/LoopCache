@@ -170,8 +170,13 @@ namespace LoopCacheLib
     /// <summary>Represents the status of a node</summary>
     public enum CacheNodeStatus
     {
+		/// <summary></summary>
         Up = 1, 
+
+		/// <summary></summary>
         Down = 2, 
+
+		/// <summary></summary>
         Questionable = 3
     }
 

@@ -25,8 +25,8 @@ namespace LoopCacheLib
         /// want an even distribution across the range of ints for a random 
         /// assortment of strings.  This method returns the same int for the same string 
         /// on any platform.  DON'T CHANGE IT!</remarks>
-        /// <param name="guid"></param>
-        /// <returns></returns>
+        /// <param name="s">The string to hash</param>
+        /// <returns>The consistent hash code</returns>
         public static int GetConsistentHashCode(string s)
         {
             if (s == null) return 0;
@@ -130,21 +130,25 @@ namespace LoopCacheLib
 			}
 		}
 
+		/// <summary></summary>
 		public static void LogInfo(string message)
 		{
 			LogEvent(message, EventLogEntryType.Information);
 		}
 
+		/// <summary></summary>
 		public static void LogWarning(string message)
 		{
 			LogEvent(message, EventLogEntryType.Warning);
 		}
 
+		/// <summary></summary>
 		public static void LogError(string message)
 		{
 			LogEvent(message, EventLogEntryType.Error);
 		}
 
+		/// <summary></summary>
 		public static void LogEvent(string message, EventLogEntryType errorType)
         {
             try
@@ -163,6 +167,7 @@ namespace LoopCacheLib
             }
 		}
 
+		/// <summary></summary>
 		public static IPEndPoint GetIPEndPoint(string hostname, int port)
 		{
 			IPAddress[] ips = Dns.GetHostAddresses(hostname);
