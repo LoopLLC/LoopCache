@@ -1,0 +1,9 @@
+# LoopCache sample configuration file
+#
+# All nodes need their own local config file.
+# See SampleConfig.txt for documentation
+
+Master		localhost:12345	
+Node		localhost:12346		24Mb
+Listener	localhost			127.0.0.1:12345		Yes
+Trace		On					C:\Loop\Logs\LoopCacheMaster.txt

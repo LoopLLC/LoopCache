@@ -59,111 +59,26 @@ namespace LoopCacheLib
 		{
 			this.configFilePath = configFilePath;
 			this.config = CacheConfig.Load(configFilePath);
-			if (config.IsTraceEnabled) 
+			if (this.config.IsTraceEnabled) 
 			{
 				CacheHelper.TraceFilePath = config.TraceFilePath;
 			}
-			this.ipep = new IPEndPoint(IPAddress.Parse(config.ListenerIP), 
-					config.ListenerPortNumber);
-		}
+			this.ipep = new IPEndPoint(IPAddress.Parse(this.config.ListenerIP), 
+					this.config.ListenerPortNumber);
 
-		/// <summary>Deserialize nodes</summary>
-		/// <remarks>If node locations are not pre-populated, this method
-		/// will also determine node locations for the ring before returning</remarks>
-		private CacheRing DeserializeNodes(byte[] data)
-		{
-			CacheRing ring = new CacheRing();
-
-			bool hasLocations = true;
-
-			// Deserialize the config
-			using (MemoryStream ms = new MemoryStream(data))
+			if (this.config.IsMaster)
 			{
-				using (BinaryReader reader = new BinaryReader(ms))
+				// Lookup the master IP to make sure it matches the listener
+
+				var masterIPEndPoint = 
+					CacheHelper.GetIPEndPoint(config.MasterHostName, config.MasterPortNumber);
+				
+				if (!(this.ipep.Equals(masterIPEndPoint)))
 				{
-					int numNodes = IPAddress.NetworkToHostOrder(reader.ReadInt32());
-					for (int n = 0; n < numNodes; n++)
-					{
-						CacheNode node = new CacheNode();
-						ring.Nodes.Add(node.GetName(), node);
-						int hostLen = FromNetwork(reader.ReadInt32());
-						byte[] hostData = new byte[hostLen];
-						if (reader.Read(hostData, 0, hostLen) != hostLen)
-						{
-							throw new Exception("data shorter than expected");
-						}
-						node.HostName = Encoding.UTF8.GetString(hostData);
-						node.PortNumber = FromNetwork(reader.ReadInt32());
-						node.MaxNumBytes = FromNetwork(reader.ReadInt64());
-						int numLocations = FromNetwork(reader.ReadInt32());
-						if (numLocations == 0)
-						{
-							hasLocations = false;
-						}
-						else
-						{
-							for (int i = 0; i < numLocations; i++)
-							{
-								int location = 
-									IPAddress.NetworkToHostOrder(reader.ReadInt32());
-								ring.SortedLocations.Add(location, node);
-								node.Locations.Add(location);
-							}
-						}
-					}
+					Console.WriteLine("Master: {0}, Listener: {1}", 
+						masterIPEndPoint, this.ipep);
+					throw new Exception("Listener misconfigured as master");
 				}
-			}
-
-			if (!hasLocations)
-			{
-				// Data nodes will get just the basic node configurations, since they can
-				// determine the node locations consistently.
-
-				ring.DetermineNodeLocations();
-				LookupEndPoints(ring);
-			}
-
-			return ring;
-		}
-
-		/// <summary>Register with the master and get the cache ring</summary>
-		private CacheRing RegisterWithMaster()
-		{
-			if (this.config.IsMaster && this.config.IsDataNode)
-			{
-				// It's not necessary to register if this is both a master and a data node
-				return this.config.Ring;
-			}
-
-			CacheMessage request = new CacheMessage();
-			request.MessageType = (byte)CacheRequestTypes.Register;
-			
-			CacheMessage response = CacheHelper.SendRequest(request, 
-					this.config.MasterIPEndPoint);
-			
-			if (response.MessageType == (byte)CacheResponseTypes.Configuration)
-			{
-				return DeserializeNodes(response.Data);
-			}
-			else
-			{
-				CacheHelper.LogError("Unable to register with master");
-
-				// The caller should keep trying until the master responds, since
-				// it's possible the cluster is being brought up all at once, 
-				// or the master is down for some reason.  A data node can't 
-				// go any further without registering with the master.
-
-				return null;
-			}
-		}
-
-		/// <summary>Look up the IPs for the nodes and store them</summary>
-		void LookupEndPoints(CacheRing ring)
-		{
-			foreach (var node in ring.Nodes.Values)
-			{
-				node.IPEndPoint = CacheHelper.GetIPEndPoint(node.HostName, node.PortNumber);
 			}
 		}
 
@@ -178,49 +93,15 @@ namespace LoopCacheLib
 
 			this.shouldRun = true;
 
-			if (this.config.IsMaster)
+			try
 			{
-				// Don't bother with a DNS lookup for the master endpoint
-				this.config.MasterIPEndPoint = 
-					new IPEndPoint(IPAddress.Parse(this.config.ListenerIP), 
-							this.config.ListenerPortNumber);
-
-				// Figure out the node locations
-				this.config.Ring.DetermineNodeLocations();
+				Initialize();
 			}
-			else
+			catch (Exception ex)
 			{
-				// Lookup the master IP
-				this.config.MasterIPEndPoint = 
-					CacheHelper.GetIPEndPoint(config.MasterHostName, config.MasterPortNumber);
-
-				this.config.Ring = null;
-
-				int numRegisterTries = 0;
-			 	do
-				{
-					// Get the ring configuration from the master
-					this.config.Ring = RegisterWithMaster();
-
-					// If we can't connect to master, pause for a while and retry.
-					// Retry as many times as it takes, since we can't go any further
-					// without registering and storing the cluster configuration.
-					if (this.config.Ring == null)
-					{
-						numRegisterTries++;
-
-						CacheHelper.LogInfo(string.Format(
-							"Unable to register with master after {0} tries", 
-							numRegisterTries));
-
-						// Sleep for numRegisterTries seconds
-						this.StoppablePause(numRegisterTries);
-					}
-				} while (this.config.Ring == null && this.shouldRun);
+				CacheHelper.LogError(ex.ToString());
+				return false;
 			}
-
-			// Lookup IPs for the nodes
-			LookupEndPoints(this.config.Ring);
 
 			this.listener = new TcpListener(this.ipep.Address, this.ipep.Port);
 
@@ -254,6 +135,51 @@ namespace LoopCacheLib
 			return true;
 		}
 
+		private void Initialize()
+		{
+			if (this.config.IsMaster)
+			{
+				// Don't bother with a DNS lookup for the master endpoint
+				this.config.MasterIPEndPoint = this.ipep;
+
+				// Figure out the node locations
+				this.config.Ring.DetermineNodeLocations();
+
+				// Lookup IPs for the nodes
+				LookupEndPoints(this.config.Ring);
+			}
+			else
+			{
+				// Lookup the master IP
+				this.config.MasterIPEndPoint = 
+					CacheHelper.GetIPEndPoint(config.MasterHostName, config.MasterPortNumber);
+
+				this.config.Ring = null;
+
+				int numRegisterTries = 0;
+			 	do
+				{
+					// Get the ring configuration from the master
+					this.config.Ring = RegisterWithMaster();
+
+					// If we can't connect to master, pause for a while and retry.
+					// Retry as many times as it takes, since we can't go any further
+					// without registering and storing the cluster configuration.
+					if (this.config.Ring == null)
+					{
+						numRegisterTries++;
+
+						CacheHelper.LogInfo(string.Format(
+							"Unable to register with master after {0} tries", 
+							numRegisterTries));
+
+						// Sleep for numRegisterTries seconds
+						this.StoppablePause(numRegisterTries);
+					}
+				} while (this.config.Ring == null && this.shouldRun);
+			}
+		}
+
 		/// <summary>
 		/// Accept a new client TCP request.
 		/// </summary>
@@ -273,10 +199,13 @@ namespace LoopCacheLib
 				{
 					using (NetworkStream n = client.GetStream())
 					{
-						// Return to the caller while waiting for the request
+						// Return to the caller while waiting for the request.
+						// Once the request is read, control returns to this
+						// method right after this line.
 						var request = await GetRequestFromNetworkStream(n);
 
-						// Once the request is read, control returns to this method here
+						// Set the end point in case we need to validate it later.
+						request.ClientEndPoint = (IPEndPoint)client.Client.RemoteEndPoint;
 
 						// Process the request and create a response message
 						CacheMessage response = ProcessRequest(request);
@@ -293,7 +222,7 @@ namespace LoopCacheLib
 		}
 
 		/// <summary>Process a request message and generate a response message</summary>
-        private CacheMessage ProcessRequest(CacheMessage request)
+		private CacheMessage ProcessRequest(CacheMessage request)
 		{
 			try
 			{
@@ -315,6 +244,8 @@ namespace LoopCacheLib
 					case CacheRequestTypes.PutObject: 		return PutObject		(data);
 					case CacheRequestTypes.DeleteObject: 	return DeleteObject		(data);
 					case CacheRequestTypes.ChangeConfig: 	return ChangeConfig		(data);
+					case CacheRequestTypes.Register:		
+						return Register(data, request.ClientEndPoint);
 
 					default: 
 						CacheMessage response = new CacheMessage();
@@ -341,18 +272,14 @@ namespace LoopCacheLib
 		}
 
 		/// <summary>A request for the node's current configuration</summary>
-		/// <remarks>Data nodes request config from the master when they get a 
-		/// request from a client for something the data node doesn't think 
-		/// it owns.  If the client is wrong, the new config is sent to the 
-		/// client.  If the data node is wrong, it corrects its config and then
-		/// finishes responding to the client.  Responds with CacheResponseTypes.Configuration
-        /// and the data is a UTF8 string, one line per node config, terminated by
-        /// CRLF.  It's the same as what's in the config file for the nodes.</remarks>
+		/// <remarks>This method returns all node locations, which makes it 
+		/// appropriate for clients that can't calculate the ring.  The data
+		/// size can be somewhat large for a large cluster.</remarks>
 		public CacheMessage GetConfig(byte[] data)
 		{
 			CacheMessage response = new CacheMessage();
 
-            response.MessageType = (byte)CacheResponseTypes.Configuration;
+			response.MessageType = (byte)CacheResponseTypes.Configuration;
 			response.Data = SerializeNodes(this.config.Ring, true);
 
 			return response;
@@ -361,6 +288,9 @@ namespace LoopCacheLib
 		/// <summary>A report from a client that a node is not responding</summary>
 		public CacheMessage NodeDown(byte[] data)
 		{
+			if (!this.config.IsMaster)
+				throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
+
 			CacheMessage response = new CacheMessage();
 
 			// TODO
@@ -372,6 +302,9 @@ namespace LoopCacheLib
 		/// change out to all data nodes.</summary>
 		public CacheMessage AddNode(byte[] data)
 		{
+			if (!this.config.IsMaster)
+				throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
+
 			CacheMessage response = new CacheMessage();
 
 			// TODO
@@ -383,6 +316,9 @@ namespace LoopCacheLib
 		/// change out to all data nodes.</summary>
 		public CacheMessage RemoveNode(byte[] data)
 		{
+			if (!this.config.IsMaster)
+				throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
+
 			CacheMessage response = new CacheMessage();
 
 			// TODO
@@ -394,6 +330,9 @@ namespace LoopCacheLib
 		/// change out to all data nodes</summary>
 		public CacheMessage ChangeNode(byte[] data)
 		{
+			if (!this.config.IsMaster)
+				throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
+
 			CacheMessage response = new CacheMessage();
 
 			// TODO
@@ -467,42 +406,6 @@ namespace LoopCacheLib
 			{
 				this.dataLock.ExitReadLock();
 			}
-		}
-
-		/// <summary>Updates the ring configuration based on a call to master</summary>
-		private void GetConfigFromMaster()
-		{
-
-		}
-
-		int ToNetwork(int i)
-		{
-			return IPAddress.HostToNetworkOrder(i);
-		}
-
-		int FromNetwork(int i)
-		{
-			return IPAddress.NetworkToHostOrder(i);
-		}
-
-		long ToNetwork(long i)
-		{
-			return IPAddress.HostToNetworkOrder(i);
-		}
-
-		long FromNetwork(long i)
-		{
-			return IPAddress.NetworkToHostOrder(i);
-		}
-
-		byte[] GetBytes(string s)
-		{
-			return Encoding.UTF8.GetBytes(s);
-		}
-
-		string GetString(byte[] b)
-		{
-			return Encoding.UTF8.GetString(b);
 		}
 
 		/// <summary>Serializes the config for clients and other nodes</summary>
@@ -705,7 +608,8 @@ namespace LoopCacheLib
 				// started, so let's check with master to see if the config changed.
 
 				// Check with master for possibly new config
-				GetConfigFromMaster();
+				CacheRing ring = RegisterWithMaster();
+				this.config.Ring = ring;
 
 				// See if the node location changed
 				node = this.config.Ring.GetNodeForHash(hash);
@@ -894,12 +798,54 @@ namespace LoopCacheLib
 		/// <summary>A request from a data node on startup to the master, to let the 
 		/// master know the data node is ready, and to get config from the master.
 		/// </summary>
-		public CacheMessage Register(byte[] data)
+		/// <remarks>This can also be called to tell the master the data node is back up
+		/// or to reload the configuration.
+		/// </remarks>
+		public CacheMessage Register(byte[] data, IPEndPoint remoteEndPoint)
 		{
+			if (!this.config.IsMaster)
+				throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
+
 			CacheMessage response = new CacheMessage();
 
-			// TODO
+			// All we need from the caller is the port number, since we can get 
+			// the IP address from the TcpClient.  The remote end point port is 
+			// the outgoing port, not the one the data node is listening on.
+			int remoteListenerPort = -1;
 
+			// Binary data format:
+			//
+			// PortNumber int
+			using (MemoryStream ms = new MemoryStream(data))
+			{
+				using (BinaryReader br = new BinaryReader(ms))
+				{
+					remoteListenerPort = FromNetwork(br.ReadInt32());
+				}
+			}
+
+			IPEndPoint remoteListenerIP = 
+				new IPEndPoint(remoteEndPoint.Address, remoteListenerPort);
+
+			var node = this.config.Ring.FindNodeByIP(remoteListenerIP);
+			if (node == null)
+			{
+				// Data node is missing from the master's config file
+				
+				CacheHelper.LogTrace(
+						"Node {0} tried to register, but it's not configured", 
+						remoteListenerIP.ToString());
+
+				throw new CacheMessageException(CacheResponseTypes.UnknownNode);
+			}
+			
+			node.Status = CacheNodeStatus.Up;
+
+			CacheHelper.LogTrace("Node {0} registered", remoteListenerIP.ToString());
+
+			// Send configuration
+			response.MessageType = (byte)CacheResponseTypes.Configuration;
+			response.Data = SerializeNodes(this.config.Ring, false);
 			return response;
 		}
 
@@ -982,60 +928,220 @@ namespace LoopCacheLib
 			return m;
 		}
 
+		/// <summary>Deserialize nodes</summary>
+		/// <remarks>If node locations are not pre-populated, this method
+		/// will also determine node locations for the ring before returning</remarks>
+		private CacheRing DeserializeNodes(byte[] data)
+		{
+			CacheRing ring = new CacheRing();
+
+			bool hasLocations = true;
+
+			// Deserialize the config
+			using (MemoryStream ms = new MemoryStream(data))
+			{
+				using (BinaryReader reader = new BinaryReader(ms))
+				{
+					int numNodes = IPAddress.NetworkToHostOrder(reader.ReadInt32());
+					for (int n = 0; n < numNodes; n++)
+					{
+						CacheNode node = new CacheNode();
+						ring.Nodes.Add(node.GetName(), node);
+						int hostLen = FromNetwork(reader.ReadInt32());
+						byte[] hostData = new byte[hostLen];
+						if (reader.Read(hostData, 0, hostLen) != hostLen)
+						{
+							throw new Exception("data shorter than expected");
+						}
+						node.HostName = Encoding.UTF8.GetString(hostData);
+						node.PortNumber = FromNetwork(reader.ReadInt32());
+						node.MaxNumBytes = FromNetwork(reader.ReadInt64());
+						int numLocations = FromNetwork(reader.ReadInt32());
+						if (numLocations == 0)
+						{
+							hasLocations = false;
+						}
+						else
+						{
+							for (int i = 0; i < numLocations; i++)
+							{
+								int location = 
+									IPAddress.NetworkToHostOrder(reader.ReadInt32());
+								ring.SortedLocations.Add(location, node);
+								node.Locations.Add(location);
+							}
+						}
+					}
+				}
+			}
+
+			if (!hasLocations)
+			{
+				// Data nodes will get just the basic node configurations, since they can
+				// determine the node locations consistently.
+
+				ring.DetermineNodeLocations();
+				LookupEndPoints(ring);
+			}
+
+			return ring;
+		}
+
+		/// <summary>Register with the master and get the cache ring</summary>
+		/// <remarks>Master returns a bare configuration, so this method will 
+		/// do DNS lookups and determine the virtual node locations before returning.
+		/// </remarks>
+		private CacheRing RegisterWithMaster()
+		{
+			if (this.config.IsMaster && this.config.IsDataNode)
+			{
+				// It's not necessary to register if this is both a master and a data node
+				return this.config.Ring;
+			}
+
+			CacheMessage request = new CacheMessage();
+			request.MessageType = (byte)CacheRequestTypes.Register;
+			using (MemoryStream ms = new MemoryStream())
+			{
+				using (BinaryWriter bw = new BinaryWriter(ms))
+				{
+					bw.Write(ToNetwork(this.config.ListenerPortNumber));
+					bw.Flush();
+					request.Data = ms.ToArray();
+				}
+			}
+
+			try
+			{
+				CacheMessage response = CacheHelper.SendRequest(request, 
+					this.config.MasterIPEndPoint);
+			
+				if (response.MessageType == (byte)CacheResponseTypes.Configuration)
+				{
+					CacheRing ring = DeserializeNodes(response.Data);
+					ring.DetermineNodeLocations();
+					LookupEndPoints(ring);
+					return ring;
+				}
+
+				CacheHelper.LogTrace("Got an unexpected response from master: {0}", 
+						response.MessageType);
+			}
+			catch (SocketException)
+			{
+				// We expect this if the master isn't up yet
+				CacheHelper.LogTrace("Got a SocketException from master, probably not up yet");
+			}
+
+			CacheHelper.LogError("Unable to register with master");
+
+			// The caller should keep trying until the master responds, since
+			// it's possible the cluster is being brought up all at once, 
+			// or the master is down for some reason.  A data node can't 
+			// go any further without registering with the master.
+
+			return null;
+		}
+
+		/// <summary>Look up the IPs for the nodes and store them</summary>
+		void LookupEndPoints(CacheRing ring)
+		{
+			foreach (var node in ring.Nodes.Values)
+			{
+				node.IPEndPoint = CacheHelper.GetIPEndPoint(node.HostName, node.PortNumber);
+			}
+		}
+
+
 		/// <summary>Stop the listener</summary>
 		public void Stop()
 		{
 			this.shouldRun = false;
-			this.listener.Stop();
+			try
+			{
+				this.listener.Stop();
+			}
+			catch {}
 		}
 		
-        /// <summary>
-        /// Pause execution until the specified DateTime, unless shouldRun is set to false.
-        /// </summary>
-        /// <param name="pauseUntil"></param>
-        /// <param name="pauseIncrementMs"></param>
-        /// <returns></returns>
-        private bool StoppablePause(DateTime pauseUntil, int pauseIncrementMs)
-        {
-            while (this.shouldRun)
-            {
-                if (DateTime.UtcNow < pauseUntil) Thread.Sleep(pauseIncrementMs);
-                else break;
-            }
+		/// <summary>
+		/// Pause execution until the specified DateTime, unless shouldRun is set to false.
+		/// </summary>
+		/// <param name="pauseUntil"></param>
+		/// <param name="pauseIncrementMs"></param>
+		/// <returns></returns>
+		private bool StoppablePause(DateTime pauseUntil, int pauseIncrementMs)
+		{
+			while (this.shouldRun)
+			{
+				if (DateTime.UtcNow < pauseUntil) Thread.Sleep(pauseIncrementMs);
+				else break;
+			}
 
-            return this.shouldRun;
-        }
+			return this.shouldRun;
+		}
 
-        /// <summary>
-        /// Pause execution until the specified DateTime, unless shouldRun is set to false.
-        /// </summary>
-        /// <param name="pauseUntil"></param>
-        /// <returns></returns>
-        private bool StoppablePause(DateTime pauseUntil)
-        {
-            return StoppablePause(pauseUntil, 500);
-        }
+		/// <summary>
+		/// Pause execution until the specified DateTime, unless shouldRun is set to false.
+		/// </summary>
+		/// <param name="pauseUntil"></param>
+		/// <returns></returns>
+		private bool StoppablePause(DateTime pauseUntil)
+		{
+			return StoppablePause(pauseUntil, 500);
+		}
 
-        /// <summary>
-        /// Pause execution for the specified length of time, unless shouldRun is set to false.
-        /// </summary>
-        /// <param name="pauseDuration"></param>
-        /// <returns></returns>
-        private bool StoppablePause(TimeSpan pauseDuration)
-        {
-            return StoppablePause(DateTime.UtcNow + pauseDuration, 500);
-        }
+		/// <summary>
+		/// Pause execution for the specified length of time, unless shouldRun is set to false.
+		/// </summary>
+		/// <param name="pauseDuration"></param>
+		/// <returns></returns>
+		private bool StoppablePause(TimeSpan pauseDuration)
+		{
+			return StoppablePause(DateTime.UtcNow + pauseDuration, 500);
+		}
 
-        /// <summary>
-        /// Pause execution for the specified number of seconds, 
+		/// <summary>
+		/// Pause execution for the specified number of seconds, 
 		/// unless shouldRun is set to false.
-        /// </summary>
-        /// <param name="pauseSeconds"></param>
-        /// <returns></returns>
-        private bool StoppablePause(int pauseSeconds)
-        {
-            return StoppablePause(DateTime.UtcNow.AddSeconds(pauseSeconds), 500);
-        }
+		/// </summary>
+		/// <param name="pauseSeconds"></param>
+		/// <returns></returns>
+		private bool StoppablePause(int pauseSeconds)
+		{
+			return StoppablePause(DateTime.UtcNow.AddSeconds(pauseSeconds), 500);
+		}
+
+		int ToNetwork(int i)
+		{
+			return IPAddress.HostToNetworkOrder(i);
+		}
+
+		int FromNetwork(int i)
+		{
+			return IPAddress.NetworkToHostOrder(i);
+		}
+
+		long ToNetwork(long i)
+		{
+			return IPAddress.HostToNetworkOrder(i);
+		}
+
+		long FromNetwork(long i)
+		{
+			return IPAddress.NetworkToHostOrder(i);
+		}
+
+		byte[] GetBytes(string s)
+		{
+			return Encoding.UTF8.GetBytes(s);
+		}
+
+		string GetString(byte[] b)
+		{
+			return Encoding.UTF8.GetString(b);
+		}
+
 
 	}
 

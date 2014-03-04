@@ -1,4 +1,5 @@
 using System;
+using System.Net;
 using System.Text;
 
 namespace LoopCacheLib
@@ -40,6 +41,11 @@ namespace LoopCacheLib
 				this.Data = Encoding.UTF8.GetBytes(value);
 			}
 		}
+
+		/// <summary>
+		/// The listener sets the end point so it can be validated when processing the message
+		/// </summary>
+		public IPEndPoint ClientEndPoint { get; set; }
 	}
 
 	/// <summary>Cache request types.  These indicate which API method to call</summary>
@@ -119,7 +125,13 @@ namespace LoopCacheLib
 		ReadKeyError = 9, 
 
 		/// <summary>Data looks corrupted</summary>
-		ReadDataError = 10
+		ReadDataError = 10, 
+
+		/// <summary>Got a request from a node that's not in the master config</summary>
+		UnknownNode = 11, 
+
+		/// <summary>Data node's end point doesn't match configuration</summary>
+		EndPointMismatch
 	}
 
 	/// <summary>An exception thrown internally when processing messages</summary>

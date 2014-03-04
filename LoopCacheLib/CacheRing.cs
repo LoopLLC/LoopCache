@@ -89,6 +89,27 @@ namespace LoopCacheLib
             }
         }
 
+		/// <summary>Scan the node list to find a node with the specified IP</summary>
+		public CacheNode FindNodeByIP(IPEndPoint endPoint)
+		{
+			try
+			{
+				this.ringLock.EnterReadLock();
+				foreach (var node in this.Nodes.Values)
+				{
+					if (node.IPEndPoint.Equals(endPoint))
+					{
+						return node;
+					}
+				}
+				return null;
+			}
+			finally
+			{
+				this.ringLock.ExitReadLock();
+			}
+		}
+
         /// <summary>
         /// Populate nodes with their locations.
         /// </summary>
@@ -170,14 +191,23 @@ namespace LoopCacheLib
     /// <summary>Represents the status of a node</summary>
     public enum CacheNodeStatus
     {
-		/// <summary></summary>
-        Up = 1, 
+		/// <summary>Node is down temporarily but still owns its objects</summary>
+		/// <remarks>This is usually during startup, before a node has registered</remarks>
+        Down = 1, 
 
-		/// <summary></summary>
-        Down = 2, 
+		/// <summary>The node is fully operational</summary>
+        Up = 2, 
 
-		/// <summary></summary>
-        Questionable = 3
+		/// <summary>Clients are reporting that this node is not available.</summary>
+        Questionable = 3, 
+
+		/// <summary>
+		/// The node is being shut down gracefully and is migrating its objects.
+		/// </summary>
+		/// <remarks>
+		/// It no longer owns its objects and is not part of the cache ring.
+		/// </remarks>
+		Migrating
     }
 
     /// <summary>A single real node in the ring</summary>
@@ -211,10 +241,11 @@ namespace LoopCacheLib
             this.Locations = new List<int>();
         }
 
-        /// <summary>Get the unique name for this node.  HostName:PortNumber</summary>
+        /// <summary>Get the unique name for this node.  HOSTNAME:PortNumber</summary>
+		/// <remarks>HostName gets converted to upper case</remarks>
         public string GetName()
         {
-            return this.HostName + ":" + this.PortNumber.ToString();
+            return (this.HostName + ":" + this.PortNumber.ToString()).ToUpper();
         }
 
         /// <summary>Get a string dump of the state of this node</summary>

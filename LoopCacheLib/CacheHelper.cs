@@ -66,7 +66,10 @@ namespace LoopCacheLib
             BinaryWriter w = new BinaryWriter(s);
             w.Write(m.MessageType);
             w.Write(IPAddress.HostToNetworkOrder(m.MessageLength));
-            w.Write(m.Data);
+			if (m.MessageLength > 0)
+			{
+            	w.Write(m.Data);
+			}
             w.Flush();
         }
 

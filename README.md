@@ -56,7 +56,7 @@ See LoopCacheLib\SampleCacheClient.cs for an example of how to talk to the serve
 
 ### Requests
 
-The number in parantheses is the preceding byte for the message.
+The number in parantheses is the preceding byte for the message.  
 
 - GetConfig (1)
 
@@ -64,16 +64,24 @@ The number in parantheses is the preceding byte for the message.
 
 	Responds with *Configuration* (see below)
 
+	Request Layout:
+
+		MessageType		byte (1)
+		DataLength		int (0, meaning no data)
+
 
 - NodeDown 			(2)
 	
 	Master only.  Clients report nodes that aren't responding.
 	
-	Request layout:
+	Request Layout:
 
-		HostLen		int
-		Host		byte[] UTF8 string
-		Port		int
+		MessageType		byte (2)
+		DataLength		int
+		Data			byte[]
+			HostLen		int
+			Host		byte[] UTF8 string
+			Port		int
 
 - AddNode			(3)
 
@@ -95,10 +103,11 @@ The number in parantheses is the preceding byte for the message.
 
 	Data nodes only
 
-	Request layout:
+	Request Layout:
 
-		KeyLen		int
-		Key			byte[] UTF8 string
+		MessageType		byte (7)
+		KeyLen			int
+		Key				byte[] UTF8 string
 
 - PutObject			(8)
 
@@ -106,10 +115,12 @@ The number in parantheses is the preceding byte for the message.
 
 	Request Layout:
 
-		KeyLen		int
-		Key			byte[] UTF8 string
-		DataLen		int
-		Data		byte[]
+		MessageType		byte (8)
+		DataLen			int
+			KeyLen		int
+			Key			byte[] UTF8 string
+			DataLen		int
+			Data		byte[]
 
 - DeleteObject	 	(9)
 
@@ -117,6 +128,7 @@ The number in parantheses is the preceding byte for the message.
 
 	Request layout:
 
+		MessageType	byte (9)
 		KeyLen		int
 		Key			byte[] UTF8 string
 
@@ -159,15 +171,17 @@ The number in parantheses is the preceding byte for the message.
 
 	Response layout:
 
-		NumNodes			int
-		[
-			HostLen			int
-			Host			byte[] UTF8 string
-			Port			int
-			MaxNumBytes		int
-			NumLocations	int
-			[Locations]		ints
-		]
+		MessageType		byte (7)
+		DataLen			int
+			NumNodes			int
+			[
+				HostLen			int
+				Host			byte[] UTF8 string
+				Port			int
+				MaxNumBytes		int
+				NumLocations	int
+				[Locations]		ints
+			]
 
 ## Security
 
@@ -217,4 +231,12 @@ Stored on master, queried from nodes and clients on startup
 - Max RAM Usage
 - Ring Locations
 - Status: Up, Down, Questionable
+
+# Coding Standards
+
+Keep it neat.  Write good comments.  Provide csdoc comments.
+
+Use tabs, not spaces.
+
+With the tab stop at 4, don't exceed 100 character lines.
 

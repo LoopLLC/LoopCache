@@ -119,6 +119,7 @@ namespace LoopCacheLib
 						{
 							throw new Exception("Already added node " + nodeName);
 						}
+						node.Status = CacheNodeStatus.Down;
 						ring.Nodes.Add(nodeName, node);
 					}
 					else if (line.StartsWith("listener"))
