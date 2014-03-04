@@ -71,13 +71,16 @@ namespace LoopCacheLib
 				// Lookup the master IP to make sure it matches the listener
 
 				var masterIPEndPoint = 
-					CacheHelper.GetIPEndPoint(config.MasterHostName, config.MasterPortNumber);
+					CacheHelper.GetIPEndPoint(
+						config.MasterHostName, 
+						config.MasterPortNumber);
 				
 				if (!(this.ipep.Equals(masterIPEndPoint)))
 				{
 					Console.WriteLine("Master: {0}, Listener: {1}", 
 						masterIPEndPoint, this.ipep);
-					throw new Exception("Listener misconfigured as master");
+					throw new Exception(
+						"Listener misconfigured as master");
 				}
 			}
 		}
@@ -111,12 +114,15 @@ namespace LoopCacheLib
 			{
 				while (this.shouldRun)
 				{
-					// The "await" causes us to return to the caller upon the 
-					// first iteration of the while loop.  Accept gets called
-					// when AcceptTcpClientAsync returns.  We don't use the 
-					// task variable here, it's only there to avoid a compiler warning.
-					// We could use it to force completion of Accept and check for exceptions.
-					var task = Accept(await listener.AcceptTcpClientAsync());
+					// The "await" causes us to return to the caller
+					// upon the first iteration of the while loop.
+					// Accept gets called when AcceptTcpClientAsync
+					// returns.  We don't use the task variable here,
+					// it's only there to avoid a compiler warning.
+					// We could use it to force completion of Accept
+					// and check for exceptions.
+					var task = Accept(await listener
+							.AcceptTcpClientAsync());
 				}
 			}
 			catch (Exception ex)
@@ -138,7 +144,14 @@ namespace LoopCacheLib
 		private void Initialize()
 		{
 			if (this.config.IsMaster)
-			{
+				InitializeMaster();
+			else
+				InitializeDataNode();
+		}
+
+		private void InitializeMaster()
+		{
+
 				// Don't bother with a DNS lookup for the master endpoint
 				this.config.MasterIPEndPoint = this.ipep;
 
@@ -147,37 +160,42 @@ namespace LoopCacheLib
 
 				// Lookup IPs for the nodes
 				LookupEndPoints(this.config.Ring);
-			}
-			else
+
+		}
+
+		private void InitializeDataNode()
+		{
+			// Lookup the master IP
+			this.config.MasterIPEndPoint = 
+				CacheHelper.GetIPEndPoint(
+					config.MasterHostName, 
+					config.MasterPortNumber);
+
+			this.config.Ring = null;
+
+			int numRegisterTries = 0;
+			do
 			{
-				// Lookup the master IP
-				this.config.MasterIPEndPoint = 
-					CacheHelper.GetIPEndPoint(config.MasterHostName, config.MasterPortNumber);
+				// Get the ring configuration from the master
+				this.config.Ring = RegisterWithMaster();
 
-				this.config.Ring = null;
-
-				int numRegisterTries = 0;
-			 	do
+				// If we can't connect to master, pause for a
+				// while and retry.  Retry as many times as it
+				// takes, since we can't go any further without
+				// registering and storing the cluster
+				// configuration.
+				if (this.config.Ring == null)
 				{
-					// Get the ring configuration from the master
-					this.config.Ring = RegisterWithMaster();
+					numRegisterTries++;
 
-					// If we can't connect to master, pause for a while and retry.
-					// Retry as many times as it takes, since we can't go any further
-					// without registering and storing the cluster configuration.
-					if (this.config.Ring == null)
-					{
-						numRegisterTries++;
+					CacheHelper.LogInfo(string.Format(
+						"Unable to register  after {0} tries", 
+						numRegisterTries));
 
-						CacheHelper.LogInfo(string.Format(
-							"Unable to register with master after {0} tries", 
-							numRegisterTries));
-
-						// Sleep for numRegisterTries seconds
-						this.StoppablePause(numRegisterTries);
-					}
-				} while (this.config.Ring == null && this.shouldRun);
-			}
+					// Sleep for numRegisterTries seconds
+					this.StoppablePause(numRegisterTries);
+				}
+			} while (this.config.Ring == null && this.shouldRun);
 		}
 
 		/// <summary>
@@ -189,8 +207,9 @@ namespace LoopCacheLib
 		/// <returns></returns>
 		async Task Accept(TcpClient client)
 		{
-			// This forces the method to return immediately to the caller, so 
-			// we can call AcceptTcpClientAsync to be ready for the next connection.
+			// This forces the method to return immediately to the caller, so
+			// we can call AcceptTcpClientAsync to be ready for the next
+			// connection.
 			await Task.Yield();
 
 			try
@@ -199,19 +218,28 @@ namespace LoopCacheLib
 				{
 					using (NetworkStream n = client.GetStream())
 					{
-						// Return to the caller while waiting for the request.
-						// Once the request is read, control returns to this
-						// method right after this line.
-						var request = await GetRequestFromNetworkStream(n);
+						// Return to the caller while waiting for
+						// the request.  Once the request is read,
+						// control returns to this method right
+						// after this line.
+						var request = await 
+							GetRequestFromNetworkStream(n);
 
-						// Set the end point in case we need to validate it later.
-						request.ClientEndPoint = (IPEndPoint)client.Client.RemoteEndPoint;
+						// Set the end point in case we need to
+						// validate it later.
+						request.ClientEndPoint = 
+							(IPEndPoint)client.Client
+								.RemoteEndPoint;
 
-						// Process the request and create a response message
-						CacheMessage response = ProcessRequest(request);
+						// Process the request and create a
+						// response message
+						CacheMessage response = 
+							ProcessRequest(request);
 
-						// Return to the caller while waiting to write the response
-						await WriteResponse(n, response.MessageType, response.Data);
+						// Return to the caller while waiting to
+						// write the response
+						await WriteResponse(n, response.MessageType, 
+							response.Data);
 					}
 				}
 			}
@@ -221,7 +249,9 @@ namespace LoopCacheLib
 			}
 		}
 
-		/// <summary>Process a request message and generate a response message</summary>
+		/// <summary>
+		/// Process a request message and generate a response message
+		/// </summary>
 		private CacheMessage ProcessRequest(CacheMessage request)
 		{
 			try
@@ -229,27 +259,41 @@ namespace LoopCacheLib
 				CacheRequestTypes t = (CacheRequestTypes)request.MessageType;
 				byte[] data = request.Data;
 
-				CacheHelper.LogTrace("ProcessMessage type: {0}, numBytes: {1}", 
-						t.ToString(), data == null ? "null" : data.Length.ToString());
+				CacheHelper.LogTrace(
+					"ProcessMessage type: {0}, numBytes: {1}", 
+					t.ToString(), 
+					data == null ? "null" : data.Length.ToString());
 
 				switch (t)
 				{
-					case CacheRequestTypes.GetConfig: 		return GetConfig		(data);
-					case CacheRequestTypes.NodeDown: 		return NodeDown			(data);
-					case CacheRequestTypes.AddNode: 		return AddNode			(data);
-					case CacheRequestTypes.RemoveNode: 		return RemoveNode		(data);
-					case CacheRequestTypes.ChangeNode: 		return ChangeNode		(data);
-					case CacheRequestTypes.GetStats: 		return GetStats			(data);
-					case CacheRequestTypes.GetObject: 		return GetObject		(data);
-					case CacheRequestTypes.PutObject: 		return PutObject		(data);
-					case CacheRequestTypes.DeleteObject: 	return DeleteObject		(data);
-					case CacheRequestTypes.ChangeConfig: 	return ChangeConfig		(data);
+					case CacheRequestTypes.GetConfig: 		
+						return GetConfig(data);
+					case CacheRequestTypes.NodeDown: 		
+						return NodeDown(data);
+					case CacheRequestTypes.AddNode: 		
+						return AddNode(data);
+					case CacheRequestTypes.RemoveNode: 		
+						return RemoveNode(data);
+					case CacheRequestTypes.ChangeNode: 		
+						return ChangeNode(data);
+					case CacheRequestTypes.GetStats: 		
+						return GetStats(data);
+					case CacheRequestTypes.GetObject: 		
+						return GetObject(data);
+					case CacheRequestTypes.PutObject: 		
+						return PutObject(data);
+					case CacheRequestTypes.DeleteObject: 	
+						return DeleteObject(data);
+					case CacheRequestTypes.ChangeConfig: 	
+						return ChangeConfig(data);
 					case CacheRequestTypes.Register:		
 						return Register(data, request.ClientEndPoint);
 
 					default: 
 						CacheMessage response = new CacheMessage();
-						response.MessageType = (byte)CacheResponseTypes.InvalidRequestType;
+						response.MessageType = 
+							(byte)CacheResponseTypes
+									.InvalidRequestType;
 						response.Data = new byte[] {};
 						return response;
 				}
@@ -266,7 +310,8 @@ namespace LoopCacheLib
 				// Anything that causes this exception is a bug we need to fix
 				CacheHelper.LogError(ex.ToString());
 				CacheMessage response = new CacheMessage();
-				response.MessageType = (byte)CacheResponseTypes.InternalServerError;
+				response.MessageType = 
+					(byte)CacheResponseTypes.InternalServerError;
 				return response;
 			}
 		}
@@ -289,7 +334,8 @@ namespace LoopCacheLib
 		public CacheMessage NodeDown(byte[] data)
 		{
 			if (!this.config.IsMaster)
-				throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
+				throw new CacheMessageException(
+						CacheResponseTypes.NotMasterNode);
 
 			CacheMessage response = new CacheMessage();
 
@@ -303,7 +349,8 @@ namespace LoopCacheLib
 		public CacheMessage AddNode(byte[] data)
 		{
 			if (!this.config.IsMaster)
-				throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
+				throw new CacheMessageException(
+						CacheResponseTypes.NotMasterNode);
 
 			CacheMessage response = new CacheMessage();
 
@@ -317,7 +364,8 @@ namespace LoopCacheLib
 		public CacheMessage RemoveNode(byte[] data)
 		{
 			if (!this.config.IsMaster)
-				throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
+				throw new CacheMessageException(
+						CacheResponseTypes.NotMasterNode);
 
 			CacheMessage response = new CacheMessage();
 
@@ -326,12 +374,15 @@ namespace LoopCacheLib
 			return response;
 		}
 
-		/// <summary>A request for the master node to make a change to a node and push the
-		/// change out to all data nodes</summary>
+		/// <summary>
+		/// A request for the master node to make a change to a node and push the
+		/// change out to all data nodes
+		/// </summary>
 		public CacheMessage ChangeNode(byte[] data)
 		{
 			if (!this.config.IsMaster)
-				throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
+				throw new CacheMessageException(
+						CacheResponseTypes.NotMasterNode);
 
 			CacheMessage response = new CacheMessage();
 
@@ -358,11 +409,12 @@ namespace LoopCacheLib
 
 			// Binary request format:
 			//
-			// KeyLen		int (This is the length of the whole packet, which we already got)
-			// Key			byte[] UTF8 string
+			// KeyLen	int (The length of the packet, which we already got)
+			// Key		byte[] UTF8 string
 
 			if (!this.config.IsDataNode)
-				throw new CacheMessageException(CacheResponseTypes.NotDataNode);
+				throw new CacheMessageException(
+						CacheResponseTypes.NotDataNode);
 
 			string keyString = null;
 			
@@ -373,7 +425,8 @@ namespace LoopCacheLib
 			catch (Exception)
 			{
 				// The client sent something that's not a string
-				throw new CacheMessageException(CacheResponseTypes.ReadKeyError);
+				throw new CacheMessageException(
+						CacheResponseTypes.ReadKeyError);
 			}
 
 			if (IsThisNode(keyString))
@@ -393,12 +446,14 @@ namespace LoopCacheLib
 				byte[] data;
 				if (this.dataByKey.TryGetValue(keyString, out data))
 				{
-					response.MessageType = (byte)CacheResponseTypes.ObjectOk;
+					response.MessageType = 
+						(byte)CacheResponseTypes.ObjectOk;
 					response.Data = data;
 				}
 				else
 				{
-					response.MessageType = (byte)CacheResponseTypes.ObjectMissing;
+					response.MessageType = 
+						(byte)CacheResponseTypes.ObjectMissing;
 				}
 				return response;
 			}
@@ -478,13 +533,14 @@ namespace LoopCacheLib
 			}
 		}
 
-		/// <summary>A request from a client to a data node to store an object in the cache.
+		/// <summary>
+		/// A request from a client to a data node to store an object in the cache.
 		/// </summary>
-		/// <param name="messageData">The entire message.  keyLen, key, dataLen, data</param>
 		public CacheMessage PutObject(byte[] messageData)
 		{
 			if (!this.config.IsDataNode)
-				throw new CacheMessageException(CacheResponseTypes.NotDataNode);
+				throw new CacheMessageException(
+						CacheResponseTypes.NotDataNode);
 
 			using (MemoryStream ms = new MemoryStream(messageData))
 			{
@@ -494,7 +550,8 @@ namespace LoopCacheLib
 
 				byte[] objectData;
 				if (!TryReadArray(br, out objectData))
-					throw new CacheMessageException(CacheResponseTypes.ReadDataError);
+					throw new CacheMessageException(
+						CacheResponseTypes.ReadDataError);
 
 				if (IsThisNode(keyString))
 					return PutObject(keyString, objectData);
@@ -509,7 +566,8 @@ namespace LoopCacheLib
 
 			try
 			{
-				// We have to lock everything down to add something to the cache
+				// We have to lock everything down to add something to the
+				// cache
 				this.dataLock.EnterWriteLock();
 
 				// Add or update the object
@@ -532,10 +590,12 @@ namespace LoopCacheLib
 					DateTime oldDateTime = this.keyPutTimes[key];
 					this.keyPutTimes[key] = now;
 
-					// We have to clear out any stale put times for this key
+					// We have to clear out any stale put times for
+					// this key
 					if (this.keysByTime.ContainsKey(oldDateTime))
 					{
-						List<string> keysAtOldTime = this.keysByTime[oldDateTime];
+						List<string> keysAtOldTime = 
+							this.keysByTime[oldDateTime];
 						keysAtOldTime.Remove(key);
 					}
 				}
@@ -565,7 +625,8 @@ namespace LoopCacheLib
 			catch (Exception ex)
 			{
 				CacheHelper.LogError(ex.ToString());
-				response.MessageType = (byte)CacheResponseTypes.InternalServerError;
+				response.MessageType = 
+					(byte)CacheResponseTypes.InternalServerError;
 			}
 			finally
 			{
@@ -602,10 +663,11 @@ namespace LoopCacheLib
 			}
 			else
 			{
-				// A client asked this node to store an object that doesn't 
-				// match up with this node's virtual node locations.  Since clients
-				// and nodes cache the ring, there might have been changes since we
-				// started, so let's check with master to see if the config changed.
+				// A client asked this node to store an object that
+				// doesn't match up with this node's virtual node
+				// locations.  Since clients and nodes cache the ring,
+				// there might have been changes since we started, so
+				// let's check with master to see if the config changed.
 
 				// Check with master for possibly new config
 				CacheRing ring = RegisterWithMaster();
@@ -616,10 +678,11 @@ namespace LoopCacheLib
 
 				if (IsThisNode(node))
 				{
-					// This means the client had it right and this node had it wrong.
-					//
-					// The master is supposed to tell us about changes, but sometimes
-					// we might hear it from a client first.  Rabalance regardless.
+					// This means the client had it right and this
+					// node had it wrong.  The master is supposed to
+					// tell us about changes, but sometimes we might
+					// hear it from a client first.  Rabalance
+					// regardless.
 					StartRebalance();
 
 					return true;
@@ -638,7 +701,8 @@ namespace LoopCacheLib
 			byte[] key;
 			if (!TryReadArray(br, out key))
 			{
-				throw new CacheMessageException(CacheResponseTypes.ReadKeyError);
+				throw new CacheMessageException(
+						CacheResponseTypes.ReadKeyError);
 			}
 			
 			// Make sure the key is a string
@@ -650,7 +714,8 @@ namespace LoopCacheLib
 			catch (Exception ex)
 			{
 				CacheHelper.LogTrace(ex.ToString());
-				throw new CacheMessageException(CacheResponseTypes.ReadKeyError);
+				throw new CacheMessageException(
+					CacheResponseTypes.ReadKeyError);
 			}
 
 			return keyString;
@@ -686,7 +751,8 @@ namespace LoopCacheLib
 				}
 				else 
 				{
-					CacheHelper.LogTrace("TryReadArray expected {0} bytes, got {1}", 
+					CacheHelper.LogTrace(
+						"TryReadArray expected {0} bytes, got {1}", 
 						len, bytesRead);
 					return false;
 				}
@@ -699,12 +765,14 @@ namespace LoopCacheLib
 			}
 		}
 
-		/// <summary>A request from a client to a data node to remove an object from the cache
+		/// <summary>
+		/// A request from a client to a data node to remove an object from the cache
 		/// </summary>
 		public CacheMessage DeleteObject(byte[] data)
 		{
 			if (!this.config.IsDataNode)
-				throw new CacheMessageException(CacheResponseTypes.NotDataNode);
+				throw new CacheMessageException(
+					CacheResponseTypes.NotDataNode);
 
 			using (MemoryStream ms = new MemoryStream(data))
 			{
@@ -740,8 +808,9 @@ namespace LoopCacheLib
 				{
 					if (!inDataByKey)
 					{
-						CacheHelper.LogTrace("{0} was in keyPutTimes but not dataByKey", 
-								keyString);
+						CacheHelper.LogTrace(
+						"{0} was in keyPutTimes but not dataByKey", 
+						keyString);
 					}
 
 					// Remove the reference to the put time
@@ -752,12 +821,14 @@ namespace LoopCacheLib
 					{
 						if (keys.Contains(keyString))
 						{
-							// Remove the key from the list at that put time
+							// Remove the key from the list at
+							// that put time
 							keys.Remove(keyString);
 						}
 						else
 						{
-							CacheHelper.LogTrace("{0} was not in keysByTime");
+							CacheHelper.LogTrace(
+								"{0} was not in keysByTime");
 						}
 					}
 				}
@@ -765,16 +836,20 @@ namespace LoopCacheLib
 				{
 					if (inDataByKey)
 					{
-						CacheHelper.LogTrace("{0} was not in keyPutTimes", keyString);
+						CacheHelper.LogTrace(
+							"{0} was not in keyPutTimes", 
+							keyString);
 					}
 				}
 
 				CacheMessage response = new CacheMessage();
 
 				if (inDataByKey)
-					response.MessageType = (byte)CacheResponseTypes.ObjectOk;
+					response.MessageType = 
+						(byte)CacheResponseTypes.ObjectOk;
 				else
-					response.MessageType = (byte)CacheResponseTypes.ObjectMissing;
+					response.MessageType = 
+						(byte)CacheResponseTypes.ObjectMissing;
 
 				return response;
 			}
@@ -784,7 +859,8 @@ namespace LoopCacheLib
 			}
 		}
 
-		/// <summary>A request from the master to a data node to change its configuration.
+		/// <summary>
+		/// A request from the master to a data node to change its configuration.
 		/// </summary>
 		public CacheMessage ChangeConfig(byte[] data)
 		{
@@ -795,16 +871,19 @@ namespace LoopCacheLib
 			return response;
 		}
 
-		/// <summary>A request from a data node on startup to the master, to let the 
+		/// <summary>
+		/// A request from a data node on startup to the master, to let the 
 		/// master know the data node is ready, and to get config from the master.
 		/// </summary>
-		/// <remarks>This can also be called to tell the master the data node is back up
+		/// <remarks>
+		/// This can also be called to tell the master the data node is back up
 		/// or to reload the configuration.
 		/// </remarks>
 		public CacheMessage Register(byte[] data, IPEndPoint remoteEndPoint)
 		{
 			if (!this.config.IsMaster)
-				throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
+				throw new CacheMessageException(
+						CacheResponseTypes.NotMasterNode);
 
 			CacheMessage response = new CacheMessage();
 
@@ -833,15 +912,17 @@ namespace LoopCacheLib
 				// Data node is missing from the master's config file
 				
 				CacheHelper.LogTrace(
-						"Node {0} tried to register, but it's not configured", 
-						remoteListenerIP.ToString());
+					"Node {0} tried to register, but it's not configured", 
+					remoteListenerIP.ToString());
 
-				throw new CacheMessageException(CacheResponseTypes.UnknownNode);
+				throw new CacheMessageException(
+						CacheResponseTypes.UnknownNode);
 			}
 			
 			node.Status = CacheNodeStatus.Up;
 
-			CacheHelper.LogTrace("Node {0} registered", remoteListenerIP.ToString());
+			CacheHelper.LogTrace("Node {0} registered", 
+				remoteListenerIP.ToString());
 
 			// Send configuration
 			response.MessageType = (byte)CacheResponseTypes.Configuration;
@@ -856,7 +937,8 @@ namespace LoopCacheLib
 		/// <param name="responseType"></param>
 		/// <param name="responseData"></param>
 		/// <returns></returns>
-		async Task WriteResponse(NetworkStream n, byte responseType, byte[] responseData)
+		async Task WriteResponse(NetworkStream n, 
+			byte responseType, byte[] responseData)
 		{
 			await Task.Yield();
 
@@ -893,7 +975,8 @@ namespace LoopCacheLib
 			}
 			else
 			{
-				throw new Exception("stream was empty trying to get messageType");
+				throw new Exception(
+					"stream was empty trying to get messageType");
 			}
 
 			// Not sure if a buffer is necessary for reading 4 bytes, 
@@ -904,7 +987,9 @@ namespace LoopCacheLib
 			while (lenBytesRead < lenbuf.Length && lenChunkSize > 0)
 			{
 				lenBytesRead += lenChunkSize =
-					n.Read(lenbuf, lenBytesRead, lenbuf.Length - lenBytesRead);
+					n.Read(	lenbuf, 
+						lenBytesRead, 
+						lenbuf.Length - lenBytesRead);
 			}
 			if (BitConverter.IsLittleEndian)
 				Array.Reverse(lenbuf);
@@ -918,7 +1003,10 @@ namespace LoopCacheLib
 			while (bytesRead < data.Length && chunkSize > 0)
 			{
 				bytesRead += chunkSize =
-					await n.ReadAsync(data, bytesRead, data.Length - bytesRead);
+					await n.ReadAsync(	
+						data, 
+						bytesRead, 
+						data.Length - bytesRead);
 			}
 
 			CacheMessage m = new CacheMessage();
@@ -926,6 +1014,31 @@ namespace LoopCacheLib
 			m.Data = data;
 
 			return m;
+		}
+
+		private CacheNode DeserializeNode(BinaryReader reader)
+		{
+			CacheNode node = new CacheNode();
+			int hostLen = FromNetwork(reader.ReadInt32());
+			byte[] hostData = new byte[hostLen];
+			if (reader.Read( hostData, 0, hostLen) != hostLen)
+			{
+				throw new Exception(
+					"data shorter than expected");
+			}
+			node.HostName = Encoding.UTF8.GetString(hostData);
+			node.PortNumber = FromNetwork(reader.ReadInt32());
+			node.MaxNumBytes = FromNetwork(reader.ReadInt64());
+			int numLocations = FromNetwork(reader.ReadInt32());
+			if (numLocations > 0)
+			{
+				for (int i = 0; i < numLocations; i++)
+				{
+					int location = FromNetwork(reader.ReadInt32());
+					node.Locations.Add(location);
+				}
+			}
+			return node;
 		}
 
 		/// <summary>Deserialize nodes</summary>
@@ -942,43 +1055,30 @@ namespace LoopCacheLib
 			{
 				using (BinaryReader reader = new BinaryReader(ms))
 				{
-					int numNodes = IPAddress.NetworkToHostOrder(reader.ReadInt32());
+					int numNodes = FromNetwork(reader.ReadInt32());
 					for (int n = 0; n < numNodes; n++)
 					{
-						CacheNode node = new CacheNode();
-						ring.Nodes.Add(node.GetName(), node);
-						int hostLen = FromNetwork(reader.ReadInt32());
-						byte[] hostData = new byte[hostLen];
-						if (reader.Read(hostData, 0, hostLen) != hostLen)
-						{
-							throw new Exception("data shorter than expected");
-						}
-						node.HostName = Encoding.UTF8.GetString(hostData);
-						node.PortNumber = FromNetwork(reader.ReadInt32());
-						node.MaxNumBytes = FromNetwork(reader.ReadInt64());
-						int numLocations = FromNetwork(reader.ReadInt32());
-						if (numLocations == 0)
+						var node = DeserializeNode(reader);
+						if (node.Locations.Count == 0)
 						{
 							hasLocations = false;
 						}
-						else
+						foreach (var location in node.Locations)
 						{
-							for (int i = 0; i < numLocations; i++)
-							{
-								int location = 
-									IPAddress.NetworkToHostOrder(reader.ReadInt32());
-								ring.SortedLocations.Add(location, node);
-								node.Locations.Add(location);
-							}
+							ring.SortedLocations.Add(
+								location, 
+								node);
 						}
+						ring.Nodes.Add(node.GetName(), node);
 					}
 				}
 			}
 
 			if (!hasLocations)
 			{
-				// Data nodes will get just the basic node configurations, since they can
-				// determine the node locations consistently.
+				// Data nodes will get just the basic node configurations,
+				// since they can determine the node locations
+				// consistently.
 
 				ring.DetermineNodeLocations();
 				LookupEndPoints(ring);
@@ -995,7 +1095,8 @@ namespace LoopCacheLib
 		{
 			if (this.config.IsMaster && this.config.IsDataNode)
 			{
-				// It's not necessary to register if this is both a master and a data node
+				// It's not necessary to register if this is both a master
+				// and a data node
 				return this.config.Ring;
 			}
 
@@ -1016,7 +1117,8 @@ namespace LoopCacheLib
 				CacheMessage response = CacheHelper.SendRequest(request, 
 					this.config.MasterIPEndPoint);
 			
-				if (response.MessageType == (byte)CacheResponseTypes.Configuration)
+				if (response.MessageType == 
+					(byte)CacheResponseTypes.Configuration)
 				{
 					CacheRing ring = DeserializeNodes(response.Data);
 					ring.DetermineNodeLocations();
@@ -1024,13 +1126,16 @@ namespace LoopCacheLib
 					return ring;
 				}
 
-				CacheHelper.LogTrace("Got an unexpected response from master: {0}", 
-						response.MessageType);
+				CacheHelper.LogTrace(
+					"Got an unexpected response from master: {0}", 
+					response.MessageType);
 			}
 			catch (SocketException)
 			{
 				// We expect this if the master isn't up yet
-				CacheHelper.LogTrace("Got a SocketException from master, probably not up yet");
+				CacheHelper.LogTrace(
+					"Got a SocketException from master, " +
+					"assuming it's probably not up yet");
 			}
 
 			CacheHelper.LogError("Unable to register with master");
@@ -1048,7 +1153,9 @@ namespace LoopCacheLib
 		{
 			foreach (var node in ring.Nodes.Values)
 			{
-				node.IPEndPoint = CacheHelper.GetIPEndPoint(node.HostName, node.PortNumber);
+				node.IPEndPoint = 
+					CacheHelper.GetIPEndPoint(
+						node.HostName, node.PortNumber);
 			}
 		}
 
@@ -1065,7 +1172,8 @@ namespace LoopCacheLib
 		}
 		
 		/// <summary>
-		/// Pause execution until the specified DateTime, unless shouldRun is set to false.
+		/// Pause execution until the specified DateTime, unless shouldRun is set
+		/// to false.
 		/// </summary>
 		/// <param name="pauseUntil"></param>
 		/// <param name="pauseIncrementMs"></param>
@@ -1074,7 +1182,8 @@ namespace LoopCacheLib
 		{
 			while (this.shouldRun)
 			{
-				if (DateTime.UtcNow < pauseUntil) Thread.Sleep(pauseIncrementMs);
+				if (DateTime.UtcNow < pauseUntil) 
+					Thread.Sleep(pauseIncrementMs);
 				else break;
 			}
 
@@ -1082,7 +1191,8 @@ namespace LoopCacheLib
 		}
 
 		/// <summary>
-		/// Pause execution until the specified DateTime, unless shouldRun is set to false.
+		/// Pause execution until the specified DateTime, unless shouldRun is set
+		/// to false.
 		/// </summary>
 		/// <param name="pauseUntil"></param>
 		/// <returns></returns>
@@ -1092,7 +1202,8 @@ namespace LoopCacheLib
 		}
 
 		/// <summary>
-		/// Pause execution for the specified length of time, unless shouldRun is set to false.
+		/// Pause execution for the specified length of time, unless shouldRun is
+		/// set to false.
 		/// </summary>
 		/// <param name="pauseDuration"></param>
 		/// <returns></returns>
@@ -1142,9 +1253,7 @@ namespace LoopCacheLib
 			return Encoding.UTF8.GetString(b);
 		}
 
-
 	}
-
 
 }
 
