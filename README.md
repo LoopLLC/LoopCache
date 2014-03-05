@@ -43,9 +43,9 @@ If you remove a node, objects under the removed locations simply shift up to the
 
 The protocol is pretty simple.  It's a single byte for the message type (which API method you want to call), then an int for the length of the data, and then then data itself.
 
-[0] 	Message Type
-[1-4]	Length
-[5-X]	Data
+[0]     Message Type
+[1-4]    Length
+[5-X]    Data
 
 Some methods have their own formats for the Data, which are also generally pretty simple.  The pattern is usually to have a 32 bit integer for the length of any arbitrary data, then the data bytes.  Strings are always UTF8 encoded.
 
@@ -60,128 +60,128 @@ The number in parantheses is the preceding byte for the message.
 
 - GetConfig (1)
 
-	Any node will respond.  Only master is totally reliable.
+    Any node will respond.  Only master is totally reliable.
 
-	Responds with *Configuration* (see below)
+    Responds with *Configuration* (see below)
 
-	Request Layout:
+    Request Layout:
 
-		MessageType		byte (1)
-		DataLength		int (0, meaning no data)
+        MessageType        byte (1)
+        DataLength        int (0, meaning no data)
 
 
-- NodeDown 			(2)
-	
-	Master only.  Clients report nodes that aren't responding.
-	
-	Request Layout:
+- NodeDown             (2)
+    
+    Master only.  Clients report nodes that aren't responding.
+    
+    Request Layout:
 
-		MessageType		byte (2)
-		DataLength		int
-		Data			byte[]
-			HostLen		int
-			Host		byte[] UTF8 string
-			Port		int
+        MessageType        byte (2)
+        DataLength        int
+        Data            byte[]
+            HostLen        int
+            Host        byte[] UTF8 string
+            Port        int
 
-- AddNode			(3)
+- AddNode            (3)
 
-	Master only.  From admin console.
+    Master only.  From admin console.
 
-- RemoveNode		(4)
+- RemoveNode        (4)
 
-	Master only.  From admin console.
+    Master only.  From admin console.
 
-- ChangeNode		(5)
+- ChangeNode        (5)
 
-	Master only.  From admin console.
+    Master only.  From admin console.
 
-- GetStats			(6)
+- GetStats            (6)
 
-	Any node will respond
+    Any node will respond
 
-- GetObject			(7)
+- GetObject            (7)
 
-	Data nodes only
+    Data nodes only
 
-	Request Layout:
+    Request Layout:
 
-		MessageType		byte (7)
-		KeyLen			int
-		Key				byte[] UTF8 string
+        MessageType        byte (7)
+        KeyLen            int
+        Key                byte[] UTF8 string
 
-- PutObject			(8)
+- PutObject            (8)
 
-	Data nodes only.
+    Data nodes only.
 
-	Request Layout:
+    Request Layout:
 
-		MessageType		byte (8)
-		DataLen			int
-			KeyLen		int
-			Key			byte[] UTF8 string
-			DataLen		int
-			Data		byte[]
+        MessageType        byte (8)
+        DataLen            int
+            KeyLen        int
+            Key            byte[] UTF8 string
+            DataLen        int
+            Data        byte[]
 
-- DeleteObject	 	(9)
+- DeleteObject         (9)
 
-	Data nodes only.
+    Data nodes only.
 
-	Request layout:
+    Request layout:
 
-		MessageType	byte (9)
-		KeyLen		int
-		Key			byte[] UTF8 string
+        MessageType    byte (9)
+        KeyLen        int
+        Key            byte[] UTF8 string
 
-- ChangeConfig	 	(10)
-	 ?
+- ChangeConfig         (10)
+     ?
 
 ### Responses
 
-- InvalidRequestType 	(1)
+- InvalidRequestType     (1)
 
-	Unrecognized initial byte
+    Unrecognized initial byte
 
-- NotMasterNode 		(2) 
-	
-	A master request was sent to a data node
+- NotMasterNode         (2) 
+    
+    A master request was sent to a data node
 
-- NotDataNode 			(3)
+- NotDataNode             (3)
 
-	A data node request was sent to the master
+    A data node request was sent to the master
 
-- ObjectOk 				(4) 
+- ObjectOk                 (4) 
 
-	Success response for GetObject
+    Success response for GetObject
 
-	Response layout:
+    Response layout:
 
-	Data		byte[]
+    Data        byte[]
 
-- ObjectMissing 		(5)
+- ObjectMissing         (5)
 
-	Data node owns that key but doesn't have the object
-	
-- ReConfigure 			(6)
+    Data node owns that key but doesn't have the object
+    
+- ReConfigure             (6)
 
-	Requested an object this data node doesn't have, client configuration is stale
+    Requested an object this data node doesn't have, client configuration is stale
 
-	(Reponse layout same as *Configuration* below)
+    (Reponse layout same as *Configuration* below)
 
-- Configuration 		(7)
+- Configuration         (7)
 
-	Response layout:
+    Response layout:
 
-		MessageType		byte (7)
-		DataLen			int
-			NumNodes			int
-			[
-				HostLen			int
-				Host			byte[] UTF8 string
-				Port			int
-				MaxNumBytes		int
-				NumLocations	int
-				[Locations]		ints
-			]
+        MessageType        byte (7)
+        DataLen            int
+            NumNodes            int
+            [
+                HostLen            int
+                Host            byte[] UTF8 string
+                Port            int
+                MaxNumBytes        int
+                NumLocations    int
+                [Locations]        ints
+            ]
 
 ## Security
 
@@ -202,27 +202,27 @@ For now the server is designed to run on a trusted network with well-behaved cli
 ## Data Node API:
 
 - GetObject 
-	- I have it
-	- I don’t have it but I should
-	- I’m not responsible for this key.  Get config from master.
-		- If I now think I’m responsible, start over.
-		- If I’m still not responsible, send the new config to the client.
+    - I have it
+    - I don’t have it but I should
+    - I’m not responsible for this key.  Get config from master.
+        - If I now think I’m responsible, start over.
+        - If I’m still not responsible, send the new config to the client.
 -PutObject 
-	- I’m responsible, Ok
-	- Do I have room for this object?  If yes, Ok
-	- If no, push the oldest objects out until there is room.
-		- I’m not responsible.  Get config from master.
-		- If I’m now responsible, Ok
-		- If I’m still not responsible, send the new config to the client.
+    - I’m responsible, Ok
+    - Do I have room for this object?  If yes, Ok
+    - If no, push the oldest objects out until there is room.
+        - I’m not responsible.  Get config from master.
+        - If I’m now responsible, Ok
+        - If I’m still not responsible, send the new config to the client.
 - DeleteObject
-	- I have it.  Ok.	
-	- I don’t have it but should.  No-op.
-	- I shouldn’t have it.  Get config from master and send to client.
+    - I have it.  Ok.    
+    - I don’t have it but should.  No-op.
+    - I shouldn’t have it.  Get config from master and send to client.
 - ChangeConfig (push from master)
-	- Start migrating  (pushing) objects that shouldn’t be here
+    - Start migrating  (pushing) objects that shouldn’t be here
 - GetStats
 
-##	Node Configuration 
+##    Node Configuration 
 
 Stored on master, queried from nodes and clients on startup
 
@@ -236,7 +236,8 @@ Stored on master, queried from nodes and clients on startup
 
 Keep it neat.  Write good comments.  Provide csdoc comments.
 
-Use tabs, not spaces.
+Use spaces instead of tabs, 4 spaces per stop.  
 
-With the tab stop at 4, don't exceed 100 character lines.
+Keep lines at 100 characters or less.
+
 

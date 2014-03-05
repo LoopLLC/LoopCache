@@ -13,10 +13,10 @@ namespace LoopCacheLib
     /// <summary>Contains helper methods for the cache lib</summary>
     public static class CacheHelper
     {
-		/// <summary>
-		/// If this is non-null, trace is enabled and will be written to this path
-		/// </summary>
-		public static string TraceFilePath { get; set; }
+        /// <summary>
+        /// If this is non-null, trace is enabled and will be written to this path
+        /// </summary>
+        public static string TraceFilePath { get; set; }
 
         /// <summary>
         /// Convert the string to an integer representation of a consistent md5 hash.
@@ -66,10 +66,10 @@ namespace LoopCacheLib
             BinaryWriter w = new BinaryWriter(s);
             w.Write(m.MessageType);
             w.Write(IPAddress.HostToNetworkOrder(m.MessageLength));
-			if (m.MessageLength > 0)
-			{
-            	w.Write(m.Data);
-			}
+            if (m.MessageLength > 0)
+            {
+                w.Write(m.Data);
+            }
             w.Flush();
         }
 
@@ -89,9 +89,9 @@ namespace LoopCacheLib
             return m;
         }
 
-		private static object traceLock = new object();
+        private static object traceLock = new object();
 
-		/// <summary>
+        /// <summary>
         /// Logs a trace message to a text file for debugging and troubleshooting.
         /// </summary>
         /// <remarks>This overload acts like string.Format</remarks>
@@ -104,14 +104,14 @@ namespace LoopCacheLib
             catch { }
         }
 
-		/// <summary>
+        /// <summary>
         /// Logs a trace message to a text file for debugging and troubleshooting.
         /// </summary>
-		public static void LogTrace(string message)
-		{
-			if (TraceFilePath == null) return;
+        public static void LogTrace(string message)
+        {
+            if (TraceFilePath == null) return;
 
-			// we only want to write one message at a time
+            // we only want to write one message at a time
             lock (traceLock)
             {
                 try
@@ -130,33 +130,33 @@ namespace LoopCacheLib
                     // It will get discarded in a windows service.
                     Console.WriteLine(ex.ToString());
                 }
-			}
-		}
+            }
+        }
 
-		/// <summary></summary>
-		public static void LogInfo(string message)
-		{
-			LogEvent(message, EventLogEntryType.Information);
-		}
+        /// <summary></summary>
+        public static void LogInfo(string message)
+        {
+            LogEvent(message, EventLogEntryType.Information);
+        }
 
-		/// <summary></summary>
-		public static void LogWarning(string message)
-		{
-			LogEvent(message, EventLogEntryType.Warning);
-		}
+        /// <summary></summary>
+        public static void LogWarning(string message)
+        {
+            LogEvent(message, EventLogEntryType.Warning);
+        }
 
-		/// <summary></summary>
-		public static void LogError(string message)
-		{
-			LogEvent(message, EventLogEntryType.Error);
-		}
+        /// <summary></summary>
+        public static void LogError(string message)
+        {
+            LogEvent(message, EventLogEntryType.Error);
+        }
 
-		/// <summary></summary>
-		public static void LogEvent(string message, EventLogEntryType errorType)
+        /// <summary></summary>
+        public static void LogEvent(string message, EventLogEntryType errorType)
         {
             try
             {
-				LogTrace(string.Format("{0}: {1}", errorType, message));
+                LogTrace(string.Format("{0}: {1}", errorType, message));
 
                 using (EventLog e = new EventLog("Application", ".", "LoopCache"))
                 {
@@ -168,23 +168,23 @@ namespace LoopCacheLib
             catch
             {
             }
-		}
+        }
 
-		/// <summary></summary>
-		public static IPEndPoint GetIPEndPoint(string hostname, int port)
-		{
-			IPAddress[] ips = Dns.GetHostAddresses(hostname);
+        /// <summary></summary>
+        public static IPEndPoint GetIPEndPoint(string hostname, int port)
+        {
+            IPAddress[] ips = Dns.GetHostAddresses(hostname);
 
-			foreach (IPAddress ip in ips)
-			{
-				if (ip.AddressFamily == AddressFamily.InterNetwork)
-				{
-					return new IPEndPoint(IPAddress.Parse(ip.ToString()), port);
-				}
-			}
+            foreach (IPAddress ip in ips)
+            {
+                if (ip.AddressFamily == AddressFamily.InterNetwork)
+                {
+                    return new IPEndPoint(IPAddress.Parse(ip.ToString()), port);
+                }
+            }
 
-			throw new Exception("Unable to resolve address");
-		}
+            throw new Exception("Unable to resolve address");
+        }
 
     }
 }
