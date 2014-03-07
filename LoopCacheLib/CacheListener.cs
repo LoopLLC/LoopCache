@@ -114,12 +114,11 @@ namespace LoopCacheLib
             {
                 while (this.shouldRun)
                 {
-                    // The "await" causes us to return to the caller
-                    // upon the first iteration of the while loop.
-                    // Accept gets called when AcceptTcpClientAsync
-                    // returns.  We don't use the task variable here,
-                    // it's only there to avoid a compiler warning.
-                    // We could use it to force completion of Accept
+                    // The "await" causes us to return to the caller upon the
+                    // first iteration of the while loop.  Accept gets called
+                    // when AcceptTcpClientAsync returns.  We don't use the
+                    // task variable here, it's only there to avoid a compiler
+                    // warning.  We could use it to force completion of Accept
                     // and check for exceptions.
                     var task = Accept(await listener
                             .AcceptTcpClientAsync());
@@ -151,7 +150,6 @@ namespace LoopCacheLib
 
         private void InitializeMaster()
         {
-
                 // Don't bother with a DNS lookup for the master endpoint
                 this.config.MasterIPEndPoint = this.ipep;
 
@@ -160,7 +158,6 @@ namespace LoopCacheLib
 
                 // Lookup IPs for the nodes
                 LookupEndPoints(this.config.Ring);
-
         }
 
         private void InitializeDataNode()
@@ -279,6 +276,7 @@ namespace LoopCacheLib
             }
             catch (CacheMessageException ex)
             {
+                // This exception is usually caused by the client doing something wrong
                 CacheHelper.LogError(ex.ToString());
                 CacheMessage response = new CacheMessage();
                 response.MessageType = ex.ResponseType;
@@ -403,6 +401,8 @@ namespace LoopCacheLib
                 throw new CacheMessageException(CacheResponseTypes.ReadKeyError);
             }
 
+            // If this node owns the key, return the object.  
+            // If not, tell the client to reconfigure.
             if (IsThisNode(keyString))
                 return GetObject(keyString);
             else
@@ -411,6 +411,7 @@ namespace LoopCacheLib
 
         private CacheMessage GetObject(string keyString)
         {
+            // This method is called after we have determined the this node owns the key
             try
             {
                 this.dataLock.EnterReadLock();
@@ -448,12 +449,12 @@ namespace LoopCacheLib
 
                 // NumNodes            int
                 // [
-                //     HostLen            int
+                //     HostLen         int
                 //     Host            byte[] UTF8 string
                 //     Port            int
-                //     MaxNumBytes        long
+                //     MaxNumBytes     long
                 //     NumLocations    int
-                //     [Locations]        ints
+                //     [Locations]     ints
                 // ]
 
                 w.Write(ToNetwork(ring.Nodes.Count));
@@ -513,8 +514,7 @@ namespace LoopCacheLib
         public CacheMessage PutObject(byte[] messageData)
         {
             if (!this.config.IsDataNode)
-                throw new CacheMessageException(
-                        CacheResponseTypes.NotDataNode);
+                throw new CacheMessageException(CacheResponseTypes.NotDataNode);
 
             using (MemoryStream ms = new MemoryStream(messageData))
             {
@@ -524,9 +524,10 @@ namespace LoopCacheLib
 
                 byte[] objectData;
                 if (!TryReadArray(br, out objectData))
-                    throw new CacheMessageException(
-                        CacheResponseTypes.ReadDataError);
+                    throw new CacheMessageException(CacheResponseTypes.ReadDataError);
 
+                // If this node owns the key, store the object.
+                // If not, tell the client to reconfigure.
                 if (IsThisNode(keyString))
                     return PutObject(keyString, objectData);
                 else
@@ -536,12 +537,13 @@ namespace LoopCacheLib
 
         private CacheMessage PutObject(string key, byte[] data)
         {
+            // This method is called after we have determined that this node owns the key
+
             CacheMessage response = new CacheMessage();
 
             try
             {
-                // We have to lock everything down to add something to the
-                // cache
+                // We have to lock everything down to add something to the cache
                 this.dataLock.EnterWriteLock();
 
                 // Add or update the object
@@ -599,8 +601,7 @@ namespace LoopCacheLib
             catch (Exception ex)
             {
                 CacheHelper.LogError(ex.ToString());
-                response.MessageType = 
-                    (byte)CacheResponseTypes.InternalServerError;
+                response.MessageType = (byte)CacheResponseTypes.InternalServerError;
             }
             finally
             {
@@ -705,7 +706,6 @@ namespace LoopCacheLib
             return response;
         }
 
-
         /// <summary>Try to read {Length:int}{Data:byte[]} from the stream</summary>
         bool TryReadArray(BinaryReader r, out byte[] data)
         {
@@ -749,6 +749,8 @@ namespace LoopCacheLib
 
                 string keyString = ReadKey(br);
 
+                // If this node owns the key, remove the object.
+                // If not, tell the client to reconfigure.
                 if (IsThisNode(keyString))
                     return DeleteObject(keyString);
                 else
@@ -758,6 +760,7 @@ namespace LoopCacheLib
 
         private CacheMessage DeleteObject(string keyString)
         {
+            // This method is called after we have determined that this node owns the key
             try
             {
                 this.dataLock.EnterWriteLock();
@@ -790,8 +793,7 @@ namespace LoopCacheLib
                     {
                         if (keys.Contains(keyString))
                         {
-                            // Remove the key from the list at
-                            // that put time
+                            // Remove the key from the list at that put time
                             keys.Remove(keyString);
                         }
                         else
@@ -846,13 +848,12 @@ namespace LoopCacheLib
         /// </summary>
         /// <remarks>
         /// This can also be called to tell the master the data node is back up
-        /// or to reload the configuration.
+        /// or to reload the configuration.  It doesn't hurt to call it multiple times.
         /// </remarks>
         public CacheMessage Register(byte[] data, IPEndPoint remoteEndPoint)
         {
             if (!this.config.IsMaster)
-                throw new CacheMessageException(
-                        CacheResponseTypes.NotMasterNode);
+                throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
 
             CacheMessage response = new CacheMessage();
 
@@ -884,14 +885,12 @@ namespace LoopCacheLib
                     "Node {0} tried to register, but it's not configured", 
                     remoteListenerIP.ToString());
 
-                throw new CacheMessageException(
-                        CacheResponseTypes.UnknownNode);
+                throw new CacheMessageException(CacheResponseTypes.UnknownNode);
             }
             
             node.Status = CacheNodeStatus.Up;
 
-            CacheHelper.LogTrace("Node {0} registered", 
-                remoteListenerIP.ToString());
+            CacheHelper.LogTrace("Node {0} registered", remoteListenerIP.ToString());
 
             // Send configuration
             response.MessageType = (byte)CacheResponseTypes.Configuration;
@@ -933,7 +932,7 @@ namespace LoopCacheLib
         /// while it waits for bytes to come across the network.</remarks>
         /// <param name="n"></param>
         /// <returns></returns>
-        async Task<CacheMessage> GetRequestFromNetworkStream(NetworkStream n)
+        private async Task<CacheMessage> GetRequestFromNetworkStream(NetworkStream n)
         {
             // Read the 1st byte, which is the message type
             byte[] messageTypeBuf = new byte[1];
@@ -944,8 +943,7 @@ namespace LoopCacheLib
             }
             else
             {
-                throw new Exception(
-                    "stream was empty trying to get messageType");
+                throw new Exception("stream was empty trying to get messageType");
             }
 
             // Not sure if a buffer is necessary for reading 4 bytes, 
@@ -956,9 +954,7 @@ namespace LoopCacheLib
             while (lenBytesRead < lenbuf.Length && lenChunkSize > 0)
             {
                 lenBytesRead += lenChunkSize =
-                    n.Read(    lenbuf, 
-                        lenBytesRead, 
-                        lenbuf.Length - lenBytesRead);
+                    n.Read(lenbuf, lenBytesRead, lenbuf.Length - lenBytesRead);
             }
             if (BitConverter.IsLittleEndian)
                 Array.Reverse(lenbuf);
@@ -1127,7 +1123,6 @@ namespace LoopCacheLib
                         node.HostName, node.PortNumber);
             }
         }
-
 
         /// <summary>Stop the listener</summary>
         public void Stop()

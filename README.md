@@ -1,7 +1,7 @@
 LoopCache
 =========
 
-A distributed key-value store, similar to memcached, written in C#
+A distributed key-value memory store, similar to memcached, written in C#
 
 Eric Z. Beard
 eric@loopfx.com
@@ -22,6 +22,7 @@ NOTE: This is not even close to functional yet!  It compiles, and some basic tes
 - Run as a Windows Service or from the console
 - Clients can be written in any language
 - Custom binary protocol
+- Objects are not persisted to disk.  It's a cache, not a database.
 
 ## Consistent Hashing
 
@@ -67,7 +68,7 @@ The number in parantheses is the preceding byte for the message.
     Request Layout:
 
         MessageType        byte (1)
-        DataLength        int (0, meaning no data)
+        DataLength         int (0, meaning no data)
 
 
 - NodeDown             (2)
@@ -76,12 +77,12 @@ The number in parantheses is the preceding byte for the message.
     
     Request Layout:
 
-        MessageType        byte (2)
-        DataLength        int
+        MessageType     byte (2)
+        DataLength      int
         Data            byte[]
-            HostLen        int
-            Host        byte[] UTF8 string
-            Port        int
+            HostLen         int
+            Host            byte[] UTF8 string
+            Port            int
 
 - AddNode            (3)
 
@@ -105,9 +106,9 @@ The number in parantheses is the preceding byte for the message.
 
     Request Layout:
 
-        MessageType        byte (7)
+        MessageType       byte (7)
         KeyLen            int
-        Key                byte[] UTF8 string
+        Key               byte[] UTF8 string
 
 - PutObject            (8)
 
@@ -115,12 +116,12 @@ The number in parantheses is the preceding byte for the message.
 
     Request Layout:
 
-        MessageType        byte (8)
-        DataLen            int
-            KeyLen        int
-            Key            byte[] UTF8 string
-            DataLen        int
-            Data        byte[]
+        MessageType     byte (8)
+        DataLen         int
+        KeyLen          int
+        Key             byte[] UTF8 string
+        DataLen         int
+        Data            byte[]
 
 - DeleteObject         (9)
 
@@ -129,7 +130,7 @@ The number in parantheses is the preceding byte for the message.
     Request layout:
 
         MessageType    byte (9)
-        KeyLen        int
+        KeyLen         int
         Key            byte[] UTF8 string
 
 - ChangeConfig         (10)
@@ -175,19 +176,29 @@ The number in parantheses is the preceding byte for the message.
         DataLen            int
             NumNodes            int
             [
-                HostLen            int
-                Host            byte[] UTF8 string
-                Port            int
-                MaxNumBytes        int
-                NumLocations    int
-                [Locations]        ints
+                HostLen             int
+                Host                byte[] UTF8 string
+                Port                int
+                MaxNumBytes         int
+                NumLocations        int
+                [Locations]         ints
             ]
 
 ## Security
 
 For now the server is designed to run on a trusted network with well-behaved clients.  I wouldn't run a listener on a public IP.
 
+# Coding Standards
+
+Keep it neat.  Write good comments.  Provide csdoc comments.
+
+Use spaces instead of tabs, 4 spaces per stop.  
+
+Keep lines at 100 characters or less.
+
 # Design Notes
+
+Don't trust anything from here on down, they're just notes.
 
 ## Master API:
 
@@ -231,13 +242,5 @@ Stored on master, queried from nodes and clients on startup
 - Max RAM Usage
 - Ring Locations
 - Status: Up, Down, Questionable
-
-# Coding Standards
-
-Keep it neat.  Write good comments.  Provide csdoc comments.
-
-Use spaces instead of tabs, 4 spaces per stop.  
-
-Keep lines at 100 characters or less.
 
 
