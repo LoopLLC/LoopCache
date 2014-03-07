@@ -52,13 +52,16 @@ namespace LoopCacheLib
                     // but not generally recommended for production.
                     if (this.Ring != null)
                     {
-                        foreach (var node in this.Ring.Nodes.Values)
+                        CacheNode n = new CacheNode();
+                        n.HostName = this.MasterHostName;
+                        n.PortNumber = this.MasterPortNumber;
+                        if (this.Ring.FindNodeByName(n.GetName()) != null)
                         {
-                            if (node.HostName.Equals(this.MasterHostName) && 
-                                node.PortNumber.Equals(this.MasterPortNumber))
-                            {
-                                return true;
-                            }
+                            return true;
+                        }
+                        else
+                        {
+                            return false;
                         }
                     }
                     return false;
@@ -91,7 +94,6 @@ namespace LoopCacheLib
         /// <summary>
         /// Parse the config file.
         /// </summary>
-        /// <remarks>Does not figure out node locations</remarks>
         public static CacheConfig Load(string fileName)
         {
             CacheConfig config = new CacheConfig();
@@ -114,13 +116,7 @@ namespace LoopCacheLib
                     if (line.StartsWith("node"))
                     {
                         CacheNode node = ParseNodeLine(line);
-                        string nodeName = node.GetName();
-                        if (ring.Nodes.ContainsKey(nodeName))
-                        {
-                            throw new Exception("Already added node " + nodeName);
-                        }
-                        node.Status = CacheNodeStatus.Down;
-                        ring.Nodes.Add(nodeName, node);
+                        ring.AddNode(node);
                     }
                     else if (line.StartsWith("listener"))
                     {

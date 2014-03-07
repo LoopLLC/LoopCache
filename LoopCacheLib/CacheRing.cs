@@ -110,74 +110,49 @@ namespace LoopCacheLib
             }
         }
 
-        /// <summary>
-        /// Populate nodes with their locations.
-        /// </summary>
-        /// <remarks>Calling this multiple times should result in the same 
-        /// locations.  Adding or removing a node, or changing a node's size, 
-        /// should have a minimal effect on the node locations.  This method
-        /// must be called after making any changes to the nodes.</remarks>
-        public void DetermineNodeLocations()
+        /// <summary>Scan the node list to find a node with the specified name</summary>
+        public CacheNode FindNodeByName(string name)
         {
-            this.ringLock.EnterWriteLock();
-
             try
             {
-                // Reset the locations
-                this.SortedLocations = new SortedList<int, CacheNode>();
-                
-                // Figure out the total available memory in the cluster
-                long totalMemory = 0;
+                this.ringLock.EnterReadLock();
                 foreach (var node in this.Nodes.Values)
                 {
-                    // Clear out all previous node locations
-                    node.ResetLocations();
-
-                    totalMemory += node.MaxNumBytes;
-                }
-
-                // We'll create an average of 100 virtual locations per node
-                int totalVirtualNodes = 100 * this.Nodes.Count;
-
-                foreach (var node in this.Nodes.Values)
-                {
-                    // Figure out the percentage of memory that this node has
-                    double percentage = (double)node.MaxNumBytes/(double)totalMemory;
-
-                    // Give this node an appropriate number of locations
-                    int numLocations = (int)Math.Round(totalVirtualNodes * percentage);
-
-                    // Get a hash code for each location and save it
-                    for (int i = 0; i < numLocations; i++)
+                    if (node.GetName().Equals(name))
                     {
-                        int hashCode = CacheHelper
-                            .GetConsistentHashCode(node.GetVirtualNodeName(i));
-
-                        int sanityCheck = 0;
-                        int maxSanity = 100;
-
-                        // Handle collisions - we can't let two nodes share the same spot.
-                        while (this.SortedLocations.ContainsKey(hashCode) && 
-                                sanityCheck++ < maxSanity)
-                        {
-                            // Just increment by 1.  In the rare case of a collision, 
-                            // this will be a very small bucket.
-                            hashCode++;
-                        }
-
-                        if (sanityCheck >= maxSanity)
-                        {
-                            throw new Exception("Tried " + maxSanity.ToString() + 
-                                    " times to avoid a collision");
-                        }
-
-                        // Add the location to the ring's master list
-                        this.SortedLocations.Add(hashCode, node);
-
-                        // Add the location to the node
-                        node.Locations.Add(hashCode);
+                        return node;
                     }
                 }
+                return null;
+            }
+            finally
+            {
+                this.ringLock.ExitReadLock();
+            }
+        }
+
+        /// <summary>Adds a node to the ring</summary>
+        /// <remarks>This is only called on the master.  Data nodes will
+        /// simply reload everything when something changes</remarks>
+        public void AddNode(CacheNode node)
+        {
+            this.ringLock.EnterWriteLock();
+            try
+            {
+                // Make sure this node isn't already in the ring
+                string nodeName = node.GetName();
+                if (this.Nodes.ContainsKey(nodeName))
+                {
+                    throw new Exception("Already added node " + nodeName);
+                }
+                node.Status = CacheNodeStatus.Down;
+                
+                // Make sure DNS resolves
+                node.IPEndPoint = CacheHelper.GetIPEndPoint(node.HostName, node.PortNumber);
+
+                this.Nodes.Add(nodeName, node);
+
+                DetermineNodeLocations();
             }
             finally
             {
@@ -185,7 +160,264 @@ namespace LoopCacheLib
             }
         }
 
+        /// <summary>Data nodes call this method to populate the nodes with 
+        /// location and do DNS lookups, since they get a simplified node list
+        /// from the master when the master notifies them of ring changes</summary>
+        public void PopulateNodes()
+        {
+            // We enter a read lock here.  We aren't adding or removing nodes, 
+            // just setting properties on them.
 
+            this.ringLock.EnterReadLock();
+            try
+            {
+                DetermineNodeLocations();
+                LookupEndPoints();
+            }
+            finally
+            {
+                this.ringLock.ExitReadLock();
+            }
+        }
+
+        /// <summary>Look up the IPs for the nodes and store them</summary>
+        /// <remarks>Caller should enter a read lock</remarks>
+        private void LookupEndPoints()
+        {
+            foreach (var node in this.Nodes.Values)
+            {
+                node.IPEndPoint = 
+                    CacheHelper.GetIPEndPoint(
+                        node.HostName, node.PortNumber);
+            }
+        }
+
+        /// <summary>
+        /// Populate nodes with their locations.
+        /// </summary>
+        /// <remarks>Calling this multiple times should result in the same 
+        /// locations.  Adding or removing a node, or changing a node's size, 
+        /// should have a minimal effect on the node locations.  This method
+        /// must be called after making any changes to the nodes.  The caller
+        /// should enter a write lock.</remarks>
+        private void DetermineNodeLocations()
+        {
+            // Reset the locations
+            this.SortedLocations = new SortedList<int, CacheNode>();
+            
+            // Figure out the total available memory in the cluster
+            long totalMemory = 0;
+            foreach (var node in this.Nodes.Values)
+            {
+                // Clear out all previous node locations
+                node.ResetLocations();
+
+                totalMemory += node.MaxNumBytes;
+            }
+
+            // We'll create an average of 100 virtual locations per node
+            int totalVirtualNodes = 100 * this.Nodes.Count;
+
+            foreach (var node in this.Nodes.Values)
+            {
+                // Figure out the percentage of memory that this node has
+                double percentage = (double)node.MaxNumBytes/(double)totalMemory;
+
+                // Give this node an appropriate number of locations
+                int numLocations = (int)Math.Round(totalVirtualNodes * percentage);
+
+                // Get a hash code for each location and save it
+                for (int i = 0; i < numLocations; i++)
+                {
+                    int hashCode = CacheHelper
+                        .GetConsistentHashCode(node.GetVirtualNodeName(i));
+
+                    int sanityCheck = 0;
+                    int maxSanity = 100;
+
+                    // Handle collisions - we can't let two nodes share the same spot.
+                    while (this.SortedLocations.ContainsKey(hashCode) && 
+                            sanityCheck++ < maxSanity)
+                    {
+                        // Just increment by 1.  In the rare case of a collision, 
+                        // this will be a very small bucket.
+                        hashCode++;
+                    }
+
+                    if (sanityCheck >= maxSanity)
+                    {
+                        throw new Exception("Tried " + maxSanity.ToString() + 
+                                " times to avoid a collision");
+                    }
+
+                    // Add the location to the ring's master list
+                    this.SortedLocations.Add(hashCode, node);
+
+                    // Add the location to the node
+                    node.Locations.Add(hashCode);
+                }
+            }
+        }
+
+        /// <summary>Test basic ring functionality.</summary>
+        /// <remarks>Throws an exception or returns false on failure</remarks>
+        public static bool Test()
+        {
+            CacheRing ring = new CacheRing();
+
+			CacheNode nodeA = new CacheNode();
+			nodeA.HostName = "localhost";
+			nodeA.PortNumber = 1;
+			nodeA.MaxNumBytes = CacheConfig.ParseMaxNumBytes("48Mb");
+			ring.Nodes.Add(nodeA.GetName(), nodeA);
+
+			CacheNode nodeB = new CacheNode();
+			nodeB.HostName = "localhost";
+			nodeB.PortNumber = 2;
+			nodeB.MaxNumBytes = CacheConfig.ParseMaxNumBytes("12Mb");
+			ring.Nodes.Add(nodeB.GetName(), nodeB);
+
+			CacheNode nodeC = new CacheNode();
+			nodeC.HostName = "localhost";
+			nodeC.PortNumber = 3;
+			nodeC.MaxNumBytes = CacheConfig.ParseMaxNumBytes("64Mb");
+			ring.Nodes.Add(nodeC.GetName(), nodeC);
+
+			// Hard-code some locations so we can make sure objects get assigned
+			// to the correct virtual node.
+
+			ring.SortedLocations.Add(10, nodeA);
+			nodeA.Locations.Add(10);
+			ring.SortedLocations.Add(-10, nodeB);
+			nodeB.Locations.Add(-10);
+			ring.SortedLocations.Add(20, nodeC);
+			nodeC.Locations.Add(20);
+			ring.SortedLocations.Add(50, nodeA);
+			nodeA.Locations.Add(50);
+			ring.SortedLocations.Add(60, nodeC);
+			nodeC.Locations.Add(60);
+
+			var node = ring.GetNodeForHash(5);
+			if (node != nodeA)
+			{
+				throw new Exception(string.Format
+                        ("Hash 5 should belong to nodeA, not {0}", node.GetName()));
+			}
+			
+			node = ring.GetNodeForHash(int.MaxValue);
+			if (node != nodeB)
+			{
+				throw new Exception(string.Format
+				    ("Hash Integer.MAX should belong to nodeB, not {0}", node.GetName()));
+			}
+			
+			node = ring.GetNodeForHash(20);
+			if (node != nodeC)
+			{
+				throw new Exception(string.Format
+				    ("Hash 20 should belong to nodeC, not {0}", node.GetName()));
+			}
+			
+			node = ring.GetNodeForHash(25);
+			if (node != nodeA)
+			{
+				throw new Exception(string.Format
+				    ("Hash 25 should belong to nodeA, not {0}", node.GetName()));
+			}
+
+			// Now get rid of those hard coded locations and let the algorithm decide
+			ring.DetermineNodeLocations();
+
+			// Make sure the master list and the nodes agree
+			foreach (var n in ring.Nodes.Values)
+			{
+				foreach (var location in n.Locations)
+				{
+					if (!ring.SortedLocations.ContainsKey(location) || 
+							ring.SortedLocations[location] != n)
+					{
+				        throw new Exception(string.Format
+						    ("Location {0} in node {1} not found", location, node.GetName()));
+					}
+				}
+			}
+
+			foreach (var loc in ring.SortedLocations)
+			{
+				string nodeName = loc.Value.GetName();
+				if (!ring.Nodes.ContainsKey(nodeName))
+				{
+				    throw new Exception(string.Format
+					    ("ring.Nodes missing {0}", nodeName));
+				}
+				if (!loc.Value.Locations.Contains(loc.Key))
+				{
+                    throw new Exception(string.Format
+					    ("node {0} does not have {1}", nodeName, loc.Key));
+				}
+			}
+
+			//Console.WriteLine(ring.GetTrace());
+
+			// Now let's place a bunch of values and see how many of them change
+			// when we make changes to the node configuration.
+
+			//Console.WriteLine("About to place objects");
+
+			// nodeName => List of hashes
+			Dictionary<string, List<int>> map = new Dictionary<string, List<int>>();
+			
+			for (int i = 0; i < 100000; i++)
+			{
+				Guid g = Guid.NewGuid();
+				int hash = CacheHelper.GetConsistentHashCode(g.ToString());
+				CacheNode n = ring.GetNodeForHash(hash);
+				string nodeName = n.GetName();
+				List<int> hashes;
+				if (!map.TryGetValue(nodeName, out hashes))
+				{
+					hashes = new List<int>();
+					map[nodeName] = hashes;
+				}
+				hashes.Add(hash);
+			}
+
+			//foreach (var nodeName in map.Keys)
+			//{
+			//	Console.WriteLine("{0} has {1} hashes", 
+			//			nodeName, map[nodeName].Count);
+			//}
+
+			//Console.WriteLine("Modifying sizes and replacing objects");
+			nodeC.MaxNumBytes = CacheConfig.ParseMaxNumBytes("48Mb"); // was 64Mb
+			ring.PopulateNodes();
+			int numChanged = 0;
+            int numTotal = 0;
+
+			foreach (var nodeName in map.Keys)
+			{
+				foreach (int hash in map[nodeName])
+				{
+                    numTotal++;
+					CacheNode n = ring.GetNodeForHash(hash);
+					if (!(nodeName.Equals(n.GetName())))
+					{
+						numChanged++;
+					}
+				}
+			}
+
+            if (numChanged >= numTotal)
+                throw new Exception("Number of changed hases >= total number of hashes");
+
+            // TODO - Caclulate an acceptable percentage
+
+			//Console.WriteLine("{0} hashes changed which node they were assigned to", 
+			//		numChanged);
+
+			return true;
+    
+        }
     }
 
     /// <summary>Represents the status of a node</summary>

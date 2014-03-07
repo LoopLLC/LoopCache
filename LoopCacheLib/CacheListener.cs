@@ -150,21 +150,14 @@ namespace LoopCacheLib
 
         private void InitializeMaster()
         {
-                // Don't bother with a DNS lookup for the master endpoint
-                this.config.MasterIPEndPoint = this.ipep;
-
-                // Figure out the node locations
-                this.config.Ring.DetermineNodeLocations();
-
-                // Lookup IPs for the nodes
-                LookupEndPoints(this.config.Ring);
+            // Don't bother with a DNS lookup for the master endpoint
+            this.config.MasterIPEndPoint = this.ipep;
         }
 
         private void InitializeDataNode()
         {
             // Lookup the master IP
-            this.config.MasterIPEndPoint = 
-                CacheHelper.GetIPEndPoint(
+            this.config.MasterIPEndPoint = CacheHelper.GetIPEndPoint(
                     config.MasterHostName, 
                     config.MasterPortNumber);
 
@@ -323,6 +316,11 @@ namespace LoopCacheLib
 
         /// <summary>A request for the master node to add a data node and push the
         /// change out to all data nodes.</summary>
+        /// <remarks>This request comes from the administrative console, and it 
+        /// should be issued after the data node has been started.  The data
+        /// node will be trying to register with the master, with a longer and 
+        /// longer retry, so if you wait too long, it will be a while before
+        /// the data node starts listening.  Not good.  TODO</remarks>
         public CacheMessage AddNode(byte[] data)
         {
             if (!this.config.IsMaster)
@@ -330,6 +328,26 @@ namespace LoopCacheLib
 
             CacheMessage response = new CacheMessage();
 
+            CacheNode newNode = null;
+            using (MemoryStream ms = new MemoryStream(data))
+            {
+                using (BinaryReader br = new BinaryReader(ms))
+                {
+                    newNode = DeserializeNode(br);
+                }
+            }
+
+            // First make sure we don't already have this node
+            CacheNode already = this.config.Ring.FindNodeByName(newNode.GetName());
+
+            if (already != null)
+                throw new CacheMessageException(CacheResponseTypes.NodeExists);
+
+            // Add it to the ring
+            this.config.Ring.AddNode(newNode); 
+
+            // Iterate through data nodes and send them all the new config
+            // (except the one we just added which will get it when it registers)
             // TODO
 
             return response;
@@ -835,9 +853,12 @@ namespace LoopCacheLib
         /// </summary>
         public CacheMessage ChangeConfig(byte[] data)
         {
+            if (this.config.IsMaster)
+                throw new CacheMessageException(CacheResponseTypes.NotDataNode);
+
             CacheMessage response = new CacheMessage();
 
-            // TODO
+            this.config.Ring = DeserializeNodes(data);
 
             return response;
         }
@@ -1042,11 +1063,9 @@ namespace LoopCacheLib
             if (!hasLocations)
             {
                 // Data nodes will get just the basic node configurations,
-                // since they can determine the node locations
-                // consistently.
-
-                ring.DetermineNodeLocations();
-                LookupEndPoints(ring);
+                // since they can determine the node locations consistently.
+                
+                ring.PopulateNodes();
             }
 
             return ring;
@@ -1082,24 +1101,32 @@ namespace LoopCacheLib
                 CacheMessage response = CacheHelper.SendRequest(request, 
                     this.config.MasterIPEndPoint);
             
-                if (response.MessageType == 
-                    (byte)CacheResponseTypes.Configuration)
+                if (response.MessageType == (byte)CacheResponseTypes.Configuration)
                 {
                     CacheRing ring = DeserializeNodes(response.Data);
-                    ring.DetermineNodeLocations();
-                    LookupEndPoints(ring);
                     return ring;
                 }
 
-                CacheHelper.LogTrace(
-                    "Got an unexpected response from master: {0}", 
+                // TODO - We'll get an unknown node response during the time
+                // between when a new data node is started and when a message is 
+                // sent to the master to add the node to the cluster.
+                if (response.MessageType == (byte)CacheResponseTypes.UnknownNode)
+                {
+                    CacheHelper.LogTrace("Tried to register with master, got UnknownNode");
+                    return null;
+                }
+
+                CacheHelper.LogTrace("Got an unexpected response from master: {0}", 
                     response.MessageType);
+
+                // Not sure what to do here.  Doing nothing will result in a retry.
+                // But an unexpected response might mean it will never succeed.
+                // TODO
             }
             catch (SocketException)
             {
                 // We expect this if the master isn't up yet
-                CacheHelper.LogTrace(
-                    "Got a SocketException from master, " +
+                CacheHelper.LogTrace("Got a SocketException from master, " +
                     "assuming it's probably not up yet");
             }
 
@@ -1111,17 +1138,6 @@ namespace LoopCacheLib
             // go any further without registering with the master.
 
             return null;
-        }
-
-        /// <summary>Look up the IPs for the nodes and store them</summary>
-        void LookupEndPoints(CacheRing ring)
-        {
-            foreach (var node in ring.Nodes.Values)
-            {
-                node.IPEndPoint = 
-                    CacheHelper.GetIPEndPoint(
-                        node.HostName, node.PortNumber);
-            }
         }
 
         /// <summary>Stop the listener</summary>

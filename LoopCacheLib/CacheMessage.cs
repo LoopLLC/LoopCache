@@ -131,7 +131,10 @@ namespace LoopCacheLib
         UnknownNode = 11, 
 
         /// <summary>Data node's end point doesn't match configuration</summary>
-        EndPointMismatch
+        EndPointMismatch = 12, 
+
+        /// <summary>Response to a request to add a node that is already in the ring</summary>
+        NodeExists = 13
     }
 
     /// <summary>An exception thrown internally when processing messages</summary>
