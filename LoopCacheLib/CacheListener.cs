@@ -120,8 +120,7 @@ namespace LoopCacheLib
                     // task variable here, it's only there to avoid a compiler
                     // warning.  We could use it to force completion of Accept
                     // and check for exceptions.
-                    var task = Accept(await listener
-                            .AcceptTcpClientAsync());
+                    var task = Accept(await listener.AcceptTcpClientAsync());
                 }
             }
             catch (Exception ex)
@@ -143,9 +142,19 @@ namespace LoopCacheLib
         private void Initialize()
         {
             if (this.config.IsMaster)
+            {
                 InitializeMaster();
+            }
             else
-                InitializeDataNode();
+            {
+                // We need a data node to start listening immediately, so that
+                // the master can communicate with it before it has even registered.
+                // Initialize on a background thread and send DataNodeNotReady for 
+                // all requests until the ring config has been received from the master.
+
+                Thread t = new Thread(InitializeDataNode);
+                t.Start();
+            }
         }
 
         private void InitializeMaster()
@@ -156,35 +165,52 @@ namespace LoopCacheLib
 
         private void InitializeDataNode()
         {
-            // Lookup the master IP
-            this.config.MasterIPEndPoint = CacheHelper.GetIPEndPoint(
-                    config.MasterHostName, 
-                    config.MasterPortNumber);
-
-            this.config.Ring = null;
-
-            int numRegisterTries = 0;
-            do
+            try
             {
-                // Get the ring configuration from the master
-                this.config.Ring = RegisterWithMaster();
+                // Lookup the master IP
+                this.config.MasterIPEndPoint = CacheHelper.GetIPEndPoint(
+                        config.MasterHostName, 
+                        config.MasterPortNumber);
 
-				// If we can't connect to master, pause for a while and retry.
-				// Retry as many times as it takes, since we can't go any
-				// further without registering and storing the cluster
-				// configuration.
-                if (this.config.Ring == null)
+                this.config.Ring = null;
+
+                int numRegisterTries = 0;
+                do
                 {
-                    numRegisterTries++;
+                    // Get the ring configuration from the master
+                    this.config.Ring = RegisterWithMaster();
 
-                    CacheHelper.LogInfo(string.Format(
-                        "Unable to register  after {0} tries", 
-                        numRegisterTries));
+                    // If we can't connect to master, pause for a while and retry.
+                    // Retry as many times as it takes, since we can't go any
+                    // further without registering and storing the cluster
+                    // configuration.
+                    if (this.config.Ring == null)
+                    {
+                        numRegisterTries++;
 
-                    // Sleep for numRegisterTries seconds
-                    this.StoppablePause(numRegisterTries);
-                }
-            } while (this.config.Ring == null && this.shouldRun);
+                        CacheHelper.LogInfo(string.Format(
+                            "Unable to register  after {0} tries", 
+                            numRegisterTries));
+
+                        int pauseSeconds = 1; 
+
+                        // Originally we had incrmental backoff here, with the pauseSeconds
+                        // as the number of tries, but when a data node is brought up 
+                        // for the first time and added to a running cluster, it will
+                        // keep trying to register until an admin adds it to the cluster config, 
+                        // which might take a while.  We want the node to become operational
+                        // as soon as possible after the master node gets the Add message.
+
+                        this.StoppablePause(pauseSeconds);
+                    }
+                } while (this.config.Ring == null && this.shouldRun);
+            }
+            catch (Exception ex)
+            {
+                // We can't continue if something fails here.  Shut down.
+                Stop();
+                CacheHelper.LogError("Unable to register", ex);
+            }
         }
 
         /// <summary>
@@ -245,6 +271,18 @@ namespace LoopCacheLib
                     t.ToString(), 
                     data == null ? "null" : data.Length.ToString());
 
+                if (this.config.Ring == null)
+                {
+                    // This is a data node and it's still trying to register with 
+                    // the master, so we need to tell callers we're not ready.
+                    // The master node will use this response as a way to confirm
+                    // that the data node is up and running, before it adds the
+                    // node to the ring.
+                    CacheMessage response = new CacheMessage();
+                    response.MessageType = (byte)CacheResponseTypes.DataNodeNotReady;
+                    return response;
+                }
+
                 switch (t)
                 {
                     case CacheRequestTypes.GetConfig:        return GetConfig(data);
@@ -257,6 +295,7 @@ namespace LoopCacheLib
                     case CacheRequestTypes.PutObject:        return PutObject(data);
                     case CacheRequestTypes.DeleteObject:     return DeleteObject(data);
                     case CacheRequestTypes.ChangeConfig:     return ChangeConfig(data);
+                    case CacheRequestTypes.Ping:             return Ping();
                     case CacheRequestTypes.Register:        
                         return Register(data, request.ClientEndPoint);
 
@@ -327,6 +366,7 @@ namespace LoopCacheLib
                 throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
 
             CacheMessage response = new CacheMessage();
+            response.MessageType = (byte)CacheResponseTypes.Accepted;
 
             CacheNode newNode = null;
             using (MemoryStream ms = new MemoryStream(data))
@@ -343,14 +383,122 @@ namespace LoopCacheLib
             if (already != null)
                 throw new CacheMessageException(CacheResponseTypes.NodeExists);
 
-            // Add it to the ring
-            this.config.Ring.AddNode(newNode); 
+            // First do a quick check to see if the node is up and
+            // trying to register with the master.
+            CacheMessage ping = new CacheMessage(CacheRequestTypes.Ping);
+            CacheMessage pingResponse = CacheHelper.SendRequest(ping, 
+                    CacheHelper.GetIPEndPoint(newNode.HostName, newNode.PortNumber));
 
-            // Iterate through data nodes and send them all the new config
-            // (except the one we just added which will get it when it registers)
-            // TODO
+            if (pingResponse == null)
+            {
+                CacheHelper.LogWarning("Unexpected null response from added data node");
+                throw new CacheMessageException(CacheResponseTypes.InternalServerError);
+            }
+            
+            if (pingResponse.MessageType != (byte)CacheResponseTypes.DataNodeNotReady)
+            {
+                CacheHelper.LogWarning(string.Format(
+                    "Unexpected response {0} from added data node", pingResponse.MessageType));
+                throw new CacheMessageException(CacheResponseTypes.InternalServerError); 
+            }
+
+            // Now we know the data node was started and it's trying to register.
+
+            // Spawn a background thread to do this and return to 
+            // the caller immediately.  Push to nodes in parallel and 
+            // retry a few times if a node doesn't respond.  Mark a node as 
+            // questionable if it doesn't respond.
+
+            Thread t = new Thread(BackgroundAddNode);
+            t.Start(newNode);
 
             return response;
+        }
+
+        private void BackgroundAddNode(object newNodeObj)
+        {
+            try
+            {
+                CacheNode newNode = newNodeObj as CacheNode;
+
+                // Add it to the ring
+                this.config.Ring.AddNode(newNode); 
+
+                // TODO - Edit the config file so the node persists if we restart master
+
+                // Serialize the current node configuration
+                byte[] config = SerializeNodes(this.config.Ring, false);
+
+                // Iterate through data nodes and send them all the new config
+                var nodeEndPoints = this.config.Ring.GetNodeEndPoints();
+
+                Parallel.ForEach(nodeEndPoints, kvp => 
+                {
+                    // Skip the one we just added
+                    if (kvp.Key.Equals(newNode.GetName()))
+                        return;
+
+                    // Skip self if master is also a data node
+                    if (IsThisNodeEndPoint(kvp.Value))
+                        return;
+
+                    bool success = PushConfigToNode(kvp.Value, config);
+
+                    if (!success)
+                    {
+                        // Mark the node as questionable.  It might be down.
+                        this.config.Ring.SetNodeStatus(kvp.Key, CacheNodeStatus.Questionable);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                // We're on a background thread here so there's nothing we can do 
+                // to let the caller know, since we returned a response already.
+                CacheHelper.LogError("Unable to add node", ex);
+            }
+        }
+
+        /// <summary>Push the serialized configuration to the specified node</summary>
+        private bool PushConfigToNode(IPEndPoint nodeEndPoint, byte[] config)
+        {
+            int maxNumTries = 3;
+            int numTries = 0;
+
+            do
+            {
+                try
+                {
+                    numTries++;
+
+                    CacheMessage request = new CacheMessage();
+                    request.MessageType = (byte)CacheRequestTypes.ChangeConfig;
+                    request.Data = config;
+                    
+                    CacheMessage response = CacheHelper.SendRequest(request, nodeEndPoint);
+
+                    if (response.MessageType == (byte)CacheResponseTypes.Accepted)
+                    {
+                        return true;
+                    }
+                    else
+                    {
+                        // Why would we get a different response?
+                        CacheHelper.LogError(string.Format(
+                            "Got unexpected response {0} trying to push config to node {1}", 
+                            response.MessageType, nodeEndPoint.ToString()));
+                        return false;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    CacheHelper.LogError(string.Format(
+                        "Failed trying to push config to node {0}", nodeEndPoint.ToString()), ex);
+                }
+            }
+            while (numTries < maxNumTries);
+
+            return false;
         }
 
         /// <summary>A request for the master node to remove a data node and push the
@@ -364,6 +512,15 @@ namespace LoopCacheLib
 
             // TODO
 
+            return response;
+        }
+
+        /// <summary>
+        /// This request has no data, it's just a check to see if this node is listening
+        /// </summary>
+        public CacheMessage Ping()
+        {
+            CacheMessage response = new CacheMessage(CacheResponseTypes.Accepted);
             return response;
         }
 
@@ -629,6 +786,12 @@ namespace LoopCacheLib
             return response;
         }
 
+        /// <summary>Returns true if this node is listening on the specified end point</summary>
+        private bool IsThisNodeEndPoint(IPEndPoint endPoint)
+        {
+            return this.ipep.Equals(endPoint);
+        }
+
         /// <summary>Returns true if this is the node specified.</summary>
         private bool IsThisNode(CacheNode node)
         {
@@ -857,6 +1020,7 @@ namespace LoopCacheLib
                 throw new CacheMessageException(CacheResponseTypes.NotDataNode);
 
             CacheMessage response = new CacheMessage();
+            response.MessageType = (byte)CacheResponseTypes.Accepted;
 
             this.config.Ring = DeserializeNodes(data);
 

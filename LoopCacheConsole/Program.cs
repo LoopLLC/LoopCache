@@ -21,6 +21,9 @@ namespace LoopCacheConsole
 			// -test
 			// -testclient config.txt
 			// -server config.txt
+            // -add TODO
+            // -remove TODO
+            // -list TODO
 			//
 			if (args.Length >= 1 && args[0].ToLower().Equals("-test"))
 			{

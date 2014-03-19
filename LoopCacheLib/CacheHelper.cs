@@ -152,6 +152,14 @@ namespace LoopCacheLib
         }
 
         /// <summary></summary>
+        public static void LogError(string message, Exception ex)
+        {
+            LogError(string.Format("{0}: {1}", 
+                message, 
+                ex == null ? "[null]" : ex.ToString()));
+        }
+
+        /// <summary></summary>
         public static void LogEvent(string message, EventLogEntryType errorType)
         {
             try

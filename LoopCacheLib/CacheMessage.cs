@@ -9,6 +9,31 @@ namespace LoopCacheLib
     /// </summary>
     public class CacheMessage
     {
+
+        /// <summary>Create a new instance of a cache message</summary>
+        public CacheMessage() 
+        {
+
+        }
+
+        /// <summary>Create a new instance of a cache message based on the message type</summary>
+        public CacheMessage(byte messageType)
+        {
+            this.MessageType = messageType;
+        }
+
+        /// <summary>Create a new instance of a cache message based on the response type</summary>
+        public CacheMessage(CacheResponseTypes responseType)
+        {
+            this.MessageType = (byte)responseType;
+        }
+
+        /// <summary>Create a new instance of a cache message based on the request type</summary>
+        public CacheMessage(CacheRequestTypes requestType)
+        {
+            this.MessageType = (byte)requestType;
+        }
+
         /// <summary>The message type.</summary>
         /// <remarks>For requests, this indicates which API method to call.  
         /// For responses, it's the return value.  See CacheRequestTypes and 
@@ -90,7 +115,12 @@ namespace LoopCacheLib
 
         /// <summary>A request from a data node to the master node to say it's alive and to 
         /// get the configuration.</summary>
-        Register            = 11
+        Register            = 11, 
+
+        /// <summary>
+        /// A simple request that's just checking to see if the node is listening
+        /// </summary>
+        Ping = 12
     }
 
     /// <summary>Return codes for the API calls</summary>
@@ -134,7 +164,14 @@ namespace LoopCacheLib
         EndPointMismatch = 12, 
 
         /// <summary>Response to a request to add a node that is already in the ring</summary>
-        NodeExists = 13
+        NodeExists = 13, 
+
+        /// <summary>A message between nodes was received and processed</summary>
+        Accepted = 14, 
+
+        /// <summary>The data node is still being added to the cluster and it's not
+        /// yet ready to accept client requests</summary>
+        DataNodeNotReady = 15
     }
 
     /// <summary>An exception thrown internally when processing messages</summary>

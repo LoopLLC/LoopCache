@@ -259,6 +259,55 @@ namespace LoopCacheLib
             }
         }
 
+        /// <summary>Get a list of node end points</summary>
+        /// <remarks>The master node uses this to send messages to the data nodes</remarks>
+        /// <returns>A list of NodeName=>IPEndPoint</returns>
+        public SortedList<string, IPEndPoint> GetNodeEndPoints()
+        {
+            SortedList<string, IPEndPoint> list = new SortedList<string, IPEndPoint>();
+
+            this.ringLock.EnterReadLock();
+
+            try
+            {
+                foreach (var node in this.Nodes)
+                {
+                    list.Add(node.Key, node.Value.IPEndPoint);
+                }
+            }
+            finally
+            {
+                this.ringLock.ExitReadLock();
+            }
+
+            return list;
+        }
+
+        /// <summary>Set the status of a node</summary>
+        public void SetNodeStatus(string nodeName, CacheNodeStatus status)
+        {
+            SetNodeStatus(FindNodeByName(nodeName), status);
+            
+        }
+
+        /// <summary>Set the status of a node</summary>
+        public void SetNodeStatus(IPEndPoint endPoint, CacheNodeStatus status)
+        {
+            SetNodeStatus(FindNodeByIP(endPoint), status);
+        }
+
+        /// <summary>Set the status of a node</summary>
+        public void SetNodeStatus(CacheNode node, CacheNodeStatus status)
+        {
+            if (node == null) return;
+
+            // I don't think it's necessary to enter a read lock here.
+
+            node.Status = status;
+
+            // TODO - What if status is Migrating?  It shouldn't be part of the ring.
+        }
+
         /// <summary>Test basic ring functionality.</summary>
         /// <remarks>Throws an exception or returns false on failure</remarks>
         public static bool Test()
@@ -431,6 +480,10 @@ namespace LoopCacheLib
         Up = 2, 
 
         /// <summary>Clients are reporting that this node is not available.</summary>
+        /// <remarks>Also set when the master tries to send a data node something
+        /// and it doesn't get a response.  Nodes will never be taken down or 
+        /// removed automatically, so this status is how the code brings a node
+        /// to an administrator's attention.</remarks>
         Questionable = 3, 
 
         /// <summary>
