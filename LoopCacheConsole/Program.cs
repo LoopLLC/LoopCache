@@ -100,15 +100,8 @@ namespace LoopCacheConsole
 
 				CacheListener listener = new CacheListener(args[1]);
 				var task = listener.StartAsync();
-
-				// Control returns here almost immediately, but we want to 
-				// wait until the while loop in StartAsync completes
-
-				//bool result = task.Result; // blocks until StartAsync is totally done
-
-				//Console.WriteLine("After listener.Start in Main");
 				
-				Console.WriteLine("Enter to stop");
+				Console.WriteLine("Press Enter to stop");
 				Console.ReadLine();
 				listener.Stop();
 
@@ -118,6 +111,34 @@ namespace LoopCacheConsole
 
 				Console.WriteLine("Got result {0}", result);
 			}
+            else if (args.Length >= 1 && args[0].ToLower().Equals("-add"))
+            {
+                if (args.Length != 4)
+                {
+                    Usage();
+                    return;
+                }
+                string masterHostPortStr = args[1];
+                string newNodeHostPortStr = args[2];
+                string maxNumBytesStr = args[3];
+
+                SampleCacheClient client = new SampleCacheClient(masterHostPortStr);
+                long maxNumBytes;
+                if (!long.TryParse(maxNumBytesStr, out maxNumBytes))
+                {
+                    Console.WriteLine("New node maxNumBytes should be a long");
+                    Usage();
+                    return;
+                }
+                if (client.AddNode(newNodeHostPortStr, maxNumBytes))
+                {
+                    Console.WriteLine("New node added");
+                }
+                else
+                {
+                    Console.WriteLine("Unable to add new node, check master server logs");
+                }
+            }
 			else
 			{
 				Usage();
@@ -136,6 +157,7 @@ namespace LoopCacheConsole
 			Console.WriteLine("\t\t\t\t\tRequires master and data nodes to be running."); 
 			Console.WriteLine("\t\t\t\t\thostname:port is the master listener");
 			Console.WriteLine("\t-server config.txt\t\tRun a master or data node");
+            Console.WriteLine("\t-add masterHost:port newNodeHost:port maxNumBytes\tAdd a new node to the cluster");
 		}
 
 		static bool TestCacheRing()

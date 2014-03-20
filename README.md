@@ -88,13 +88,33 @@ The number in parantheses is the preceding byte for the message.
 
     Master only.  From admin console.
 
+    Request Layout:
+
+        HostLen         int
+        Host            byte[] UTF8 string
+        Port            int
+        MaxNumBytes     long
+
 - RemoveNode        (4)
 
     Master only.  From admin console.
 
+    Request Layout:
+
+        HostLen         int
+        Host            byte[] UTF8 string
+        Port            int
+
 - ChangeNode        (5)
 
     Master only.  From admin console.
+    
+    Request Layout:
+
+        HostLen         int
+        Host            byte[] UTF8 string
+        Port            int
+        MaxNumBytes     long
 
 - GetStats            (6)
 

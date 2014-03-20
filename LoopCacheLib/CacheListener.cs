@@ -9,44 +9,74 @@ using System.Threading.Tasks;
 
 namespace LoopCacheLib
 {
-    /// <summary>Listens on a port for cache requests from clients</summary>
-    /// <remarks>Depending on configuration, can be a master or data node</remarks>
+    /// <summary>
+    /// Listens on a port for cache requests from clients
+    /// </summary>
+    /// <remarks>
+    /// Depending on configuration, can be a master or data node
+    /// </remarks>
     public class CacheListener
     {
         // Remember: FAST FAST FAST
 
-        /// <summary>This is the object cache</summary>
+        /// <summary>
+        /// This is the object cache
+        /// </summary>
         private SortedList<string, byte[]> dataByKey;
 
-        /// <summary>A list of keys sorted by put time</summary>
-        /// <remarks>Each datetime is a bucket of keys, since more than one may be
-        /// accessed at the same time.  </remarks>
+        /// <summary>
+        /// A list of keys sorted by put time
+        /// </summary>
+        /// <remarks>
+        /// Each datetime is a bucket of keys, since more than one may be
+        /// accessed at the same time.  
+        /// </remarks>
         private SortedList<DateTime, List<string>> keysByTime;
 
-        /// <summary>The last time objects were saved</summary>
+        /// <summary>
+        /// The last time objects were saved
+        /// </summary>
         private SortedList<string, DateTime> keyPutTimes;
 
-        /// <summary>Synchronizes access to the data in the cache</summary>
+        /// <summary>
+        /// Synchronizes access to the data in the cache
+        /// </summary>
         private ReaderWriterLockSlim dataLock = new ReaderWriterLockSlim();
 
-        /// <summary>Configuration for this listener.</summary>
+        /// <summary>
+        /// Configuration for this listener.
+        /// </summary>
         private CacheConfig config;
 
-        /// <summary>The location of the config file</summary>
-        /// <remarks>The listener can edit the file if it's the master</remarks>
+        /// <summary>
+        /// The location of the config file
+        /// </summary>
+        /// <remarks>
+        /// The listener can edit the file if it's the master
+        /// </remarks>
         private string configFilePath;
 
-        /// <summary>The IP and Port that we're listening on</summary>
+        /// <summary>
+        /// The IP and Port that we're listening on
+        /// </summary>
         private IPEndPoint ipep;
 
-        /// <summary>If set to false, stop accepting new client requests</summary>
+        /// <summary>
+        /// If set to false, stop accepting new client requests
+        /// </summary>
         private bool shouldRun;
 
-        /// <summary>The TCP Listener</summary>
+        /// <summary>
+        /// The TCP Listener
+        /// </summary>
         private TcpListener listener;
 
-        /// <summary>Create an uninitialized instance of the listener</summary>
-        /// <remarks>This constructor is for testing</remarks>
+        /// <summary>
+        /// Create an uninitialized instance of the listener
+        /// </summary>
+        /// <remarks>
+        /// This constructor is for testing
+        /// </remarks>
         public CacheListener()
         {
             this.dataByKey = new SortedList<string, byte[]>();
@@ -54,7 +84,9 @@ namespace LoopCacheLib
             this.keyPutTimes = new SortedList<string, DateTime>();
         }
 
-        /// <summary>Create a new listener based on a config file</summary>
+        /// <summary>
+        /// Create a new listener based on a config file
+        /// </summary>
         public CacheListener(string configFilePath) : this()
         {
             this.configFilePath = configFilePath;
@@ -194,7 +226,7 @@ namespace LoopCacheLib
 
                         int pauseSeconds = 1; 
 
-                        // Originally we had incrmental backoff here, with the pauseSeconds
+                        // Originally we had incremental backoff here, with the pauseSeconds
                         // as the number of tries, but when a data node is brought up 
                         // for the first time and added to a running cluster, it will
                         // keep trying to register until an admin adds it to the cluster config, 
@@ -353,13 +385,18 @@ namespace LoopCacheLib
             return response;
         }
 
-        /// <summary>A request for the master node to add a data node and push the
-        /// change out to all data nodes.</summary>
-        /// <remarks>This request comes from the administrative console, and it 
-        /// should be issued after the data node has been started.  The data
-        /// node will be trying to register with the master, with a longer and 
-        /// longer retry, so if you wait too long, it will be a while before
-        /// the data node starts listening.  Not good.  TODO</remarks>
+        /// <summary>
+        /// A request for the master node to add a data node and push the
+        /// change out to all data nodes.
+        /// </summary>
+        /// <remarks>
+        /// This request comes from the administrative console, and it 
+        /// should be issued after the data node has been started.  
+        ///     HostLen         int
+        ///     Host            byte[] UTF8 string
+        ///     Port            int
+        ///     MaxNumBytes     long
+        /// </remarks>
         public CacheMessage AddNode(byte[] data)
         {
             if (!this.config.IsMaster)
@@ -373,7 +410,7 @@ namespace LoopCacheLib
             {
                 using (BinaryReader br = new BinaryReader(ms))
                 {
-                    newNode = DeserializeNode(br);
+                    newNode = DeserializeNode(br, false);
                 }
             }
 
@@ -424,32 +461,30 @@ namespace LoopCacheLib
                 // Add it to the ring
                 this.config.Ring.AddNode(newNode); 
 
-                // TODO - Edit the config file so the node persists if we restart master
-
-                // Serialize the current node configuration
-                byte[] config = SerializeNodes(this.config.Ring, false);
+                // Save edits to the config file so the node persists if we restart master
+                CacheConfig.Save(this.configFilePath, this.config);
 
                 // Iterate through data nodes and send them all the new config
                 var nodeEndPoints = this.config.Ring.GetNodeEndPoints();
 
-                Parallel.ForEach(nodeEndPoints, kvp => 
+                // Create a list of end points that need the configuration
+                SortedList<string, IPEndPoint> endPointsToPush = 
+                    new SortedList<string, IPEndPoint>();
+
+                foreach (var kvp in nodeEndPoints)
                 {
                     // Skip the one we just added
                     if (kvp.Key.Equals(newNode.GetName()))
-                        return;
+                        continue;
 
                     // Skip self if master is also a data node
                     if (IsThisNodeEndPoint(kvp.Value))
-                        return;
+                        continue;
 
-                    bool success = PushConfigToNode(kvp.Value, config);
+                    endPointsToPush.Add(kvp.Key, kvp.Value);
+                }
 
-                    if (!success)
-                    {
-                        // Mark the node as questionable.  It might be down.
-                        this.config.Ring.SetNodeStatus(kvp.Key, CacheNodeStatus.Questionable);
-                    }
-                });
+                PushConfigToNodes(endPointsToPush);
             }
             catch (Exception ex)
             {
@@ -457,6 +492,24 @@ namespace LoopCacheLib
                 // to let the caller know, since we returned a response already.
                 CacheHelper.LogError("Unable to add node", ex);
             }
+        }
+
+        private void PushConfigToNodes(SortedList<string, IPEndPoint> endPointsToPush)
+        {
+            // Serialize the current node configuration
+            byte[] config = SerializeNodes(this.config.Ring, false);
+
+            // Send messages to all nodes in parallel
+            Parallel.ForEach(endPointsToPush, kvp =>
+            {
+                bool success = PushConfigToNode(kvp.Value, config);
+
+                if (!success)
+                {
+                    // Mark the node as questionable.  It might be down.
+                    this.config.Ring.SetNodeStatus(kvp.Key, CacheNodeStatus.Questionable);
+                }
+            });
         }
 
         /// <summary>Push the serialized configuration to the specified node</summary>
@@ -659,7 +712,9 @@ namespace LoopCacheLib
             }
         }
 
-        /// <summary>Starts the rebalancer</summary>
+        /// <summary>
+        /// Starts the rebalancer
+        /// </summary>
         private void StartRebalance()
         {
             // This is something we want to happen on a background thread
@@ -669,8 +724,10 @@ namespace LoopCacheLib
             CacheHelper.LogInfo("Started Rebalance Thread");
         }
 
-        /// <summary>Moves all keys that don't belong here any more to the node where
-        /// they actually belong, according to current configuration</summary>
+        /// <summary>
+        /// Moves all keys that don't belong here any more to the node where
+        /// they actually belong, according to current configuration
+        /// </summary>
         private void Rebalance()
         {
             try
@@ -786,13 +843,17 @@ namespace LoopCacheLib
             return response;
         }
 
-        /// <summary>Returns true if this node is listening on the specified end point</summary>
+        /// <summary>
+        /// Returns true if this node is listening on the specified end point
+        /// </summary>
         private bool IsThisNodeEndPoint(IPEndPoint endPoint)
         {
             return this.ipep.Equals(endPoint);
         }
 
-        /// <summary>Returns true if this is the node specified.</summary>
+        /// <summary>
+        /// Returns true if this is the node specified.
+        /// </summary>
         private bool IsThisNode(CacheNode node)
         {
             if (node.HostName.Equals(this.config.ListenerHostName) && 
@@ -803,11 +864,15 @@ namespace LoopCacheLib
             return false;
         }
 
-        /// <summary>Returns true if this node owns the specified key.</summary>
-        /// <remarks>This method tries once, and if it doesn't own the key, 
+        /// <summary>
+        /// Returns true if this node owns the specified key.
+        /// </summary>
+        /// <remarks>
+        /// This method tries once, and if it doesn't own the key, 
         /// it goes to the master for updated configuration, just in case the 
         /// cluster has changed.  If the cluster has changed, a rebalance is 
-        /// started in the background.</remarks>
+        /// started in the background.
+        /// </remarks>
         private bool IsThisNode(string keyString)
         {
             // Hash the key, make sure this node owns it
@@ -850,7 +915,9 @@ namespace LoopCacheLib
             }
         }
 
-        /// <summary>Read a string from the reader</summary>
+        /// <summary>
+        /// Read a string from the reader
+        /// </summary>
         private string ReadKey(BinaryReader br)
         {
             byte[] key;
@@ -1022,7 +1089,7 @@ namespace LoopCacheLib
             CacheMessage response = new CacheMessage();
             response.MessageType = (byte)CacheResponseTypes.Accepted;
 
-            this.config.Ring = DeserializeNodes(data);
+            this.config.Ring = DeserializeNodes(data, false);
 
             return response;
         }
@@ -1166,7 +1233,7 @@ namespace LoopCacheLib
             return m;
         }
 
-        private CacheNode DeserializeNode(BinaryReader reader)
+        private CacheNode DeserializeNode(BinaryReader reader, bool hasLocations)
         {
             CacheNode node = new CacheNode();
             int hostLen = FromNetwork(reader.ReadInt32());
@@ -1179,13 +1246,16 @@ namespace LoopCacheLib
             node.HostName = Encoding.UTF8.GetString(hostData);
             node.PortNumber = FromNetwork(reader.ReadInt32());
             node.MaxNumBytes = FromNetwork(reader.ReadInt64());
-            int numLocations = FromNetwork(reader.ReadInt32());
-            if (numLocations > 0)
+            if (hasLocations)
             {
-                for (int i = 0; i < numLocations; i++)
+                int numLocations = FromNetwork(reader.ReadInt32());
+                if (numLocations > 0)
                 {
-                    int location = FromNetwork(reader.ReadInt32());
-                    node.Locations.Add(location);
+                    for (int i = 0; i < numLocations; i++)
+                    {
+                        int location = FromNetwork(reader.ReadInt32());
+                        node.Locations.Add(location);
+                    }
                 }
             }
             return node;
@@ -1194,11 +1264,9 @@ namespace LoopCacheLib
         /// <summary>Deserialize nodes</summary>
         /// <remarks>If node locations are not pre-populated, this method
         /// will also determine node locations for the ring before returning</remarks>
-        private CacheRing DeserializeNodes(byte[] data)
+        private CacheRing DeserializeNodes(byte[] data, bool hasLocations)
         {
             CacheRing ring = new CacheRing();
-
-            bool hasLocations = true;
 
             // Deserialize the config
             using (MemoryStream ms = new MemoryStream(data))
@@ -1208,7 +1276,7 @@ namespace LoopCacheLib
                     int numNodes = FromNetwork(reader.ReadInt32());
                     for (int n = 0; n < numNodes; n++)
                     {
-                        var node = DeserializeNode(reader);
+                        var node = DeserializeNode(reader, hasLocations);
                         if (node.Locations.Count == 0)
                         {
                             hasLocations = false;
@@ -1267,11 +1335,11 @@ namespace LoopCacheLib
             
                 if (response.MessageType == (byte)CacheResponseTypes.Configuration)
                 {
-                    CacheRing ring = DeserializeNodes(response.Data);
+                    CacheRing ring = DeserializeNodes(response.Data, true);
                     return ring;
                 }
 
-                // TODO - We'll get an unknown node response during the time
+                // We'll get an unknown node response during the time
                 // between when a new data node is started and when a message is 
                 // sent to the master to add the node to the cluster.
                 if (response.MessageType == (byte)CacheResponseTypes.UnknownNode)
@@ -1367,32 +1435,32 @@ namespace LoopCacheLib
             return StoppablePause(DateTime.UtcNow.AddSeconds(pauseSeconds), 500);
         }
 
-        int ToNetwork(int i)
+        private int ToNetwork(int i)
         {
             return IPAddress.HostToNetworkOrder(i);
         }
 
-        int FromNetwork(int i)
+        private int FromNetwork(int i)
         {
             return IPAddress.NetworkToHostOrder(i);
         }
 
-        long ToNetwork(long i)
+        private long ToNetwork(long i)
         {
             return IPAddress.HostToNetworkOrder(i);
         }
 
-        long FromNetwork(long i)
+        private long FromNetwork(long i)
         {
             return IPAddress.NetworkToHostOrder(i);
         }
 
-        byte[] GetBytes(string s)
+        private byte[] GetBytes(string s)
         {
             return Encoding.UTF8.GetBytes(s);
         }
 
-        string GetString(byte[] b)
+        private string GetString(byte[] b)
         {
             return Encoding.UTF8.GetString(b);
         }

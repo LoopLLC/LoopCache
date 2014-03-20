@@ -23,6 +23,10 @@ namespace LoopCacheConsole
         /// <summary>A map of the virtual node locations</summary>
         private SortedList<int, IPEndPoint> sortedLocations;
 
+        /// <summary>
+        /// Construct a new instance based on the master node's hostname:port
+        /// </summary>
+        /// <param name="hostNamePort"></param>
         public SampleCacheClient(string hostNamePort)
         {
             this.sortedLocations = new SortedList<int, IPEndPoint>();
@@ -150,27 +154,34 @@ namespace LoopCacheConsole
         // You'd probably want to just steal the CacheRequestTypes enum from LoopCacheLib
         // instead of using constants, but constants work just fine.
 
-        public const byte Request_GetConfig            = 1;
-        public const byte Request_NodeDown             = 2;
-        public const byte Request_AddNode              = 3;
-        public const byte Request_RemoveNode           = 4;
-        public const byte Request_ChangeNode           = 5;
-        public const byte Request_GetStats             = 6;
-        public const byte Request_GetObject            = 7;
-        public const byte Request_PutObject            = 8;
-        public const byte Request_DeleteObject         = 9;
-        public const byte Request_ChangeConfig         = 10;
+        public const byte Request_GetConfig         = 1;
+        public const byte Request_NodeDown          = 2;
+        public const byte Request_AddNode           = 3;
+        public const byte Request_RemoveNode        = 4;
+        public const byte Request_ChangeNode        = 5;
+        public const byte Request_GetStats          = 6;
+        public const byte Request_GetObject         = 7;
+        public const byte Request_PutObject         = 8;
+        public const byte Request_DeleteObject      = 9;
+        public const byte Request_ChangeConfig      = 10;
+        public const byte Request_Register          = 11;
+        public const byte Request_Ping              = 12;
 
-        public const byte Response_InvalidRequestType     = 1;
-        public const byte Response_NotMasterNode         = 2; 
-        public const byte Response_NotDataNode             = 3; 
-        public const byte Response_ObjectOk             = 4; 
-        public const byte Response_ObjectMissing         = 5;
-        public const byte Response_ReConfigure             = 6;
-        public const byte Response_Configuration         = 7;
-        public const byte Response_InternalServerError     = 8;
-        public const byte Response_ReadKeyError         = 9;
-        public const byte Response_ReadDataError         = 10;
+        public const byte Response_InvalidRequestType       = 1;
+        public const byte Response_NotMasterNode            = 2; 
+        public const byte Response_NotDataNode              = 3; 
+        public const byte Response_ObjectOk                 = 4; 
+        public const byte Response_ObjectMissing            = 5;
+        public const byte Response_ReConfigure              = 6;
+        public const byte Response_Configuration            = 7;
+        public const byte Response_InternalServerError      = 8;
+        public const byte Response_ReadKeyError             = 9;
+        public const byte Response_ReadDataError            = 10;
+        public const byte Response_UnknownNode              = 11;
+        public const byte Response_EndPointMismatch         = 12;
+        public const byte Response_NodeExists               = 13;
+        public const byte Response_Accepted                 = 14;
+        public const byte Response_DataNodeNotReady         = 15;
 
         public const int MaxLength = 1024 * 1024 * 1024; // 1Gb
 
@@ -178,9 +189,9 @@ namespace LoopCacheConsole
         {
             if (GetConfig() &&
                 NodeDown() && 
-                AddNode() && 
-                RemoveNode() && 
-                ChangeNode() && 
+                AddNode("localhost:12349", 2048) &&
+                ChangeNode("localhost:12349", 4096) &&
+                RemoveNode("localhost:12349") && 
                 GetStats() && 
                 PutObject("abc", "Hello, World!") && 
                 GetObject("abc", "Hello, World!") &&
@@ -224,12 +235,12 @@ namespace LoopCacheConsole
 
             // NumNodes            int
             // [
-            //     HostLen            int
+            //     HostLen         int
             //     Host            byte[] UTF8 string
             //     Port            int
-            //     MaxNumBytes        long
+            //     MaxNumBytes     long
             //     NumLocations    int
-            //     [Locations]        ints
+            //     [Locations]     ints
             // ]
 
             using (MemoryStream ms = new MemoryStream(response.Item2))
@@ -270,26 +281,75 @@ namespace LoopCacheConsole
 
         bool NodeDown()
         {
+            // TODO
             return true;
         }
 
-        bool AddNode()
+        public bool AddNode(string hostPort, long maxNumBytes)
         {
+            // TODO
+            string[] tokens = hostPort.Split(':');
+            if (tokens.Length != 2)
+            {
+                throw new Exception("Expected hostname:port");
+            }
+            string hostname = tokens[0];
+            string portstr = tokens[1];
+            int port;
+            if (!int.TryParse(portstr, out port))
+            {
+                throw new Exception("Invalid port");
+            }
+
+            //     Request Layout:
+
+            //          HostLen         int
+            //          Host            byte[] UTF8 string
+            //          Port            int
+            //          MaxNumBytes     long
+
+            byte[] message = null;
+            using (MemoryStream ms = new MemoryStream())
+            {
+                BinaryWriter w = new BinaryWriter(ms);
+
+                byte[] hostBytes = Encoding.UTF8.GetBytes(hostname);
+                w.Write(IPAddress.HostToNetworkOrder(hostBytes.Length));
+                w.Write(hostBytes);
+                w.Write(IPAddress.HostToNetworkOrder(port));
+                w.Write(IPAddress.HostToNetworkOrder(maxNumBytes));
+
+                w.Flush();
+                ms.Flush();
+                message = ms.ToArray();
+            }
+
+            var response = SendMessage(masterNode, Request_AddNode, message);
+            if (response.Item1 != Response_Accepted)
+            {
+                Console.WriteLine("Got {0} instead of {1} for AddNode",
+                    response.Item1, Response_Accepted);
+                return false; 
+            }
+
             return true;
         }
 
-        bool RemoveNode()
+        bool RemoveNode(string hostPort)
         {
+            // TODO
             return true;
         }
 
-        bool ChangeNode()
+        bool ChangeNode(string hostPort, long maxNumBytes)
         {
+            // TODO
             return true;
         }
 
         bool GetStats()
         {
+            // TODO
             return true;
         }
 
