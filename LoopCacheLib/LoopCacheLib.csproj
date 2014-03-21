@@ -47,6 +47,13 @@
     <Compile Include="CacheMessage.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="SampleConfig\SampleConfig.txt" />
+    <Content Include="SampleConfig\SampleDevDataNode2.txt" />
+    <Content Include="SampleConfig\SampleDevDataNode.txt" />
+    <Content Include="SampleConfig\SampleDevMaster.txt" />
+    <Content Include="SampleConfig\SampleDevMaster2.txt" />
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.

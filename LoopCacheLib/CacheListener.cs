@@ -235,6 +235,11 @@ namespace LoopCacheLib
 
                         this.StoppablePause(pauseSeconds);
                     }
+                    else
+                    {
+                        CacheHelper.LogTrace("Successfully registered with master");
+                    }
+
                 } while (this.config.Ring == null && this.shouldRun);
             }
             catch (Exception ex)
@@ -988,22 +993,35 @@ namespace LoopCacheLib
         public CacheMessage DeleteObject(byte[] data)
         {
             if (!this.config.IsDataNode)
-                throw new CacheMessageException(
-                    CacheResponseTypes.NotDataNode);
+                throw new CacheMessageException(CacheResponseTypes.NotDataNode);
 
-            using (MemoryStream ms = new MemoryStream(data))
+            // Binary request format:
+            //
+            // KeyLen    int (The length of the packet, which we already got)
+            // Key       byte[] UTF8 string
+
+            if (!this.config.IsDataNode)
+                throw new CacheMessageException(CacheResponseTypes.NotDataNode);
+
+            string keyString = null;
+
+            try
             {
-                BinaryReader br = new BinaryReader(ms);
-
-                string keyString = ReadKey(br);
-
-                // If this node owns the key, remove the object.
-                // If not, tell the client to reconfigure.
-                if (IsThisNode(keyString))
-                    return DeleteObject(keyString);
-                else
-                    return CreateReConfigureMessage();
+                keyString = Encoding.UTF8.GetString(data);
             }
+            catch (Exception)
+            {
+                // The client sent something that's not a string
+                throw new CacheMessageException(CacheResponseTypes.ReadKeyError);
+            }
+
+            // If this node owns the key, remove the object.
+            // If not, tell the client to reconfigure.
+            if (IsThisNode(keyString))
+                return DeleteObject(keyString);
+            else
+                return CreateReConfigureMessage();
+
         }
 
         private CacheMessage DeleteObject(string keyString)
@@ -1137,7 +1155,7 @@ namespace LoopCacheLib
                     "Node {0} tried to register, but it's not configured", 
                     remoteListenerIP.ToString());
 
-                throw new CacheMessageException(CacheResponseTypes.UnknownNode);
+                return new CacheMessage(CacheResponseTypes.UnknownNode);
             }
             
             node.Status = CacheNodeStatus.Up;
@@ -1313,6 +1331,9 @@ namespace LoopCacheLib
             {
                 // It's not necessary to register if this is both a master
                 // and a data node
+
+                CacheHelper.LogTrace("RegisterWithMaster not necessary since this is the master");
+                
                 return this.config.Ring;
             }
 
@@ -1336,6 +1357,9 @@ namespace LoopCacheLib
                 if (response.MessageType == (byte)CacheResponseTypes.Configuration)
                 {
                     CacheRing ring = DeserializeNodes(response.Data, true);
+
+                    CacheHelper.LogTrace("Got the ring configuration from master");
+
                     return ring;
                 }
 

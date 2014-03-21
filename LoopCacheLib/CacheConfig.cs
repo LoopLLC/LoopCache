@@ -158,11 +158,10 @@ namespace LoopCacheLib
                     {
                         CacheNode node = ParseNodeLine(line);
                         ring.AddNode(node);
+                        configLine.IsNodeLine = true;
                     }
                     else if (line.StartsWith("listener"))
                     {
-                        configLine.IsNodeLine = true;
-
                         // # Listener        host        ip:port                IsMaster Yes|No
                         // Listener            localhost    127.0.0.1:12345        Yes
 
@@ -276,7 +275,7 @@ namespace LoopCacheLib
                         foreach (var node in this.Ring.Nodes.Values)
                         {
                             // Node	localhost:12346		24Mb
-                            string nodeStr = string.Format("Node\t{0}:{1}\t{2}",
+                            string nodeStr = string.Format("Node\t\t{0}:{1}\t\t{2}",
                                 node.HostName, node.PortNumber, 
                                 GetFriendlyFileSize(node.MaxNumBytes));
                             newLineNum++;

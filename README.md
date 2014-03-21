@@ -90,10 +90,13 @@ The number in parantheses is the preceding byte for the message.
 
     Request Layout:
 
-        HostLen         int
-        Host            byte[] UTF8 string
-        Port            int
-        MaxNumBytes     long
+        MessageType     byte (3)
+        DataLen         int
+        Data            byte[]
+            HostLen         int
+            Host            byte[] UTF8 string
+            Port            int
+            MaxNumBytes     long
 
 - RemoveNode        (4)
 
@@ -101,9 +104,12 @@ The number in parantheses is the preceding byte for the message.
 
     Request Layout:
 
-        HostLen         int
-        Host            byte[] UTF8 string
-        Port            int
+        MessageType     byte (4)
+        DataLen         int
+        Data            byte[]
+            HostLen         int
+            Host            byte[] UTF8 string
+            Port            int
 
 - ChangeNode        (5)
 
@@ -111,10 +117,13 @@ The number in parantheses is the preceding byte for the message.
     
     Request Layout:
 
-        HostLen         int
-        Host            byte[] UTF8 string
-        Port            int
-        MaxNumBytes     long
+        MessageType     byte (5)
+        DataLen         int
+        Data            byte[]
+            HostLen         int
+            Host            byte[] UTF8 string
+            Port            int
+            MaxNumBytes     long
 
 - GetStats            (6)
 
@@ -130,6 +139,9 @@ The number in parantheses is the preceding byte for the message.
         KeyLen            int
         Key               byte[] UTF8 string
 
+    Note that the key length and key aren't embedded in the message, 
+    they are the message itself.
+
 - PutObject            (8)
 
     Data nodes only.
@@ -138,10 +150,11 @@ The number in parantheses is the preceding byte for the message.
 
         MessageType     byte (8)
         DataLen         int
-        KeyLen          int
-        Key             byte[] UTF8 string
-        DataLen         int
         Data            byte[]
+            KeyLen          int
+            Key             byte[] UTF8 string
+            DataLen         int
+            Data            byte[]
 
 - DeleteObject         (9)
 
@@ -152,6 +165,9 @@ The number in parantheses is the preceding byte for the message.
         MessageType    byte (9)
         KeyLen         int
         Key            byte[] UTF8 string
+
+    Note that the key length and key aren't embedded in the message, 
+    they are the message itself.
 
 - ChangeConfig         (10)
      ?

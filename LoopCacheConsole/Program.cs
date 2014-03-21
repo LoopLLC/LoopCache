@@ -21,9 +21,9 @@ namespace LoopCacheConsole
 			// -test
 			// -testclient config.txt
 			// -server config.txt
-            // -add TODO
+            // -add 
             // -remove TODO
-            // -list TODO
+            // -list 
 			//
 			if (args.Length >= 1 && args[0].ToLower().Equals("-test"))
 			{
@@ -70,11 +70,10 @@ namespace LoopCacheConsole
 
 				// It's cheating to use anything from LoopCacheLib for client tests.
 				// Developers can use this code as an example of how to use the API.
-				// LoopCacheLib will *not* be referenced by calling applications, 
-				// unless they happen to be the master and data nodes talking to each other.
+				// LoopCacheLib will *not* be referenced by client applications.
 
-				SampleCacheClient sc = new SampleCacheClient(args[1]);
-				if (sc.Test())
+				CacheClient client = new CacheClient(args[1]);
+				if (client.Test())
 				{
 					Console.WriteLine("All client tests passed");
 				}
@@ -122,7 +121,7 @@ namespace LoopCacheConsole
                 string newNodeHostPortStr = args[2];
                 string maxNumBytesStr = args[3];
 
-                SampleCacheClient client = new SampleCacheClient(masterHostPortStr);
+                CacheClient client = new CacheClient(masterHostPortStr);
                 long maxNumBytes;
                 if (!long.TryParse(maxNumBytesStr, out maxNumBytes))
                 {
@@ -138,6 +137,18 @@ namespace LoopCacheConsole
                 {
                     Console.WriteLine("Unable to add new node, check master server logs");
                 }
+            }
+            else if (args.Length == 1 && args[0].ToLower().Equals("-list"))
+            {
+                if (args.Length != 2)
+                {
+                    Console.WriteLine("Missing master hostname:port.  See usage:");
+                    Usage();
+                    return;
+                }
+
+                CacheClient client = new CacheClient(args[1]);
+                client.PrintList();
             }
 			else
 			{
@@ -157,7 +168,9 @@ namespace LoopCacheConsole
 			Console.WriteLine("\t\t\t\t\tRequires master and data nodes to be running."); 
 			Console.WriteLine("\t\t\t\t\thostname:port is the master listener");
 			Console.WriteLine("\t-server config.txt\t\tRun a master or data node");
-            Console.WriteLine("\t-add masterHost:port newNodeHost:port maxNumBytes\tAdd a new node to the cluster");
+            Console.WriteLine("\t-add masterHost:port newNodeHost:port maxNumBytes\t" + 
+                "Add a new node to the cluster");
+            Console.WriteLine("\t-list masterHost:port\tList the data nodes in the cluster");
 		}
 
 		static bool TestCacheRing()
@@ -236,13 +249,6 @@ namespace LoopCacheConsole
 			list.Add(new Guid("25c43b37-8515-4e4a-847d-bd2468a9e359"), -953497936);
 			list.Add(new Guid("36ab9e2f-601e-4197-97fa-742b31da9ec9"), -437896523);
 			list.Add(new Guid("f39d1d95-af0f-4a28-8178-73f93c22096f"), -2095074639);
-
-			// TODO - I'm worried about this.  I had saved some values from 
-			// a few years ago when I was playing around with consistent hashing, 
-			// and the hashes no longer match.  The hard coded list above is a 
-			// replacement based on the current implementation.  
-			// The hashes should have been stable forever.  They should always
-			// be the same on all machines.
 
 			// The following test should always succeed, regardless of platform.
 			foreach (Guid key in list.Keys)

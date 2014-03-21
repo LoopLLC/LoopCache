@@ -6,35 +6,53 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 // DO NOT import LoopCacheLib!
 
 namespace LoopCacheConsole
 {
-    /// <summary>A sample of how to write a client of LoopCache.</summary>
-    /// <remarks>This class is used to test the server.  Keep in mind 
-    /// that clients will not have access to LoopCacheLib, since it is 
-    /// only for use by the server itself.</remarks>
-    public class SampleCacheClient
+    /// <summary>This is the client used by the console application to 
+    /// test and administer the cache.</summary>
+    /// <remarks>This class can be used as an example of how to write a client.
+    /// Remember that client code will *not* have access to LoopCacheLib, since
+    /// that library is only used by the server process.</remarks>
+    public class CacheClient
     {
-        /// <summary>The master node</summary>
+        /// <summary>
+        /// The master node
+        /// </summary>
         private IPEndPoint masterNode;
 
-        /// <summary>A map of the virtual node locations</summary>
-        private SortedList<int, IPEndPoint> sortedLocations;
+        /// <summary>
+        /// A map of the virtual node locations
+        /// </summary>
+        private SortedList<int, Node> sortedLocations;
+
+        /// <summary>
+        /// A list of "host:port" => Node
+        /// </summary>
+        private SortedList<string, Node> dataNodes;
 
         /// <summary>
         /// Construct a new instance based on the master node's hostname:port
         /// </summary>
-        /// <param name="hostNamePort"></param>
-        public SampleCacheClient(string hostNamePort)
+        /// <param name="hostNamePort">The master node</param>
+        public CacheClient(string hostNamePort)
         {
-            this.sortedLocations = new SortedList<int, IPEndPoint>();
+            this.sortedLocations = new SortedList<int, Node>();
+            this.dataNodes = new SortedList<string, Node>();
 
             this.masterNode = GetIPEndPoint(hostNamePort);
         }
 
-        IPEndPoint GetIPEndPoint(string hostname, int port)
+        /// <summary>
+        /// Look up the host and create an IP end point based on the hostname and port.
+        /// </summary>
+        /// <param name="hostname"></param>
+        /// <param name="port"></param>
+        /// <returns></returns>
+        private IPEndPoint GetIPEndPoint(string hostname, int port)
         {
             IPAddress[] ips = Dns.GetHostAddresses(hostname);
 
@@ -49,7 +67,12 @@ namespace LoopCacheConsole
             throw new Exception("Unable to resolve address");
         }
 
-        IPEndPoint GetIPEndPoint(string hostNamePort)
+        /// <summary>
+        /// Parse the host name and port and lookup the ip end point.
+        /// </summary>
+        /// <param name="hostNamePort"></param>
+        /// <returns></returns>
+        private IPEndPoint GetIPEndPoint(string hostNamePort)
         {
             string[] tokens = hostNamePort.Split(':');
             if (tokens.Length != 2)
@@ -68,18 +91,22 @@ namespace LoopCacheConsole
 
         }
 
-        /// <summary>Get the data node that owns this key</summary>
-        /// <remarks>Virtual nodes are on a 32 bit ring.  Find the location 
+        /// <summary>
+        /// Get the data node that owns this key
+        /// </summary>
+        /// <remarks>
+        /// Virtual nodes are on a 32 bit ring.  Find the location 
         /// of the key's hash and the node that owns it is the first node
         /// we find from that point upwards.
-        IPEndPoint GetNodeForKey(string key)
+        /// </remarks>
+        private IPEndPoint GetNodeForKey(string key)
         {
             int hashCode = GetConsistentHashCode(key);
             IPEndPoint firstNode = null;
             foreach (var kvp in this.sortedLocations)
             {
-                if (firstNode == null) firstNode = kvp.Value;
-                if (kvp.Key >= hashCode) return kvp.Value;
+                if (firstNode == null) firstNode = kvp.Value.EndPoint;
+                if (kvp.Key >= hashCode) return kvp.Value.EndPoint;
             }
 
             // We wrapped around Int.MAX
@@ -117,6 +144,13 @@ namespace LoopCacheConsole
             return (a ^ b ^ c ^ d);
         }
 
+        /// <summary>
+        /// Send a message to a server.
+        /// </summary>
+        /// <param name="server"></param>
+        /// <param name="messageType"></param>
+        /// <param name="data"></param>
+        /// <returns></returns>
         private Tuple<byte, byte[]> SendMessage(IPEndPoint server, 
                 byte messageType, byte[] data)
         {
@@ -151,51 +185,60 @@ namespace LoopCacheConsole
             }
         }
 
-        // You'd probably want to just steal the CacheRequestTypes enum from LoopCacheLib
-        // instead of using constants, but constants work just fine.
+        private const byte Request_GetConfig         = 1;
+        private const byte Request_NodeDown          = 2;
+        private const byte Request_AddNode           = 3;
+        private const byte Request_RemoveNode        = 4;
+        private const byte Request_ChangeNode        = 5;
+        private const byte Request_GetStats          = 6;
+        private const byte Request_GetObject         = 7;
+        private const byte Request_PutObject         = 8;
+        private const byte Request_DeleteObject      = 9;
+        private const byte Request_ChangeConfig      = 10;
+        private const byte Request_Register          = 11;
+        private const byte Request_Ping              = 12;
 
-        public const byte Request_GetConfig         = 1;
-        public const byte Request_NodeDown          = 2;
-        public const byte Request_AddNode           = 3;
-        public const byte Request_RemoveNode        = 4;
-        public const byte Request_ChangeNode        = 5;
-        public const byte Request_GetStats          = 6;
-        public const byte Request_GetObject         = 7;
-        public const byte Request_PutObject         = 8;
-        public const byte Request_DeleteObject      = 9;
-        public const byte Request_ChangeConfig      = 10;
-        public const byte Request_Register          = 11;
-        public const byte Request_Ping              = 12;
+        private const byte Response_InvalidRequestType       = 1;
+        private const byte Response_NotMasterNode            = 2; 
+        private const byte Response_NotDataNode              = 3; 
+        private const byte Response_ObjectOk                 = 4; 
+        private const byte Response_ObjectMissing            = 5;
+        private const byte Response_ReConfigure              = 6;
+        private const byte Response_Configuration            = 7;
+        private const byte Response_InternalServerError      = 8;
+        private const byte Response_ReadKeyError             = 9;
+        private const byte Response_ReadDataError            = 10;
+        private const byte Response_UnknownNode              = 11;
+        private const byte Response_EndPointMismatch         = 12;
+        private const byte Response_NodeExists               = 13;
+        private const byte Response_Accepted                 = 14;
+        private const byte Response_DataNodeNotReady         = 15;
 
-        public const byte Response_InvalidRequestType       = 1;
-        public const byte Response_NotMasterNode            = 2; 
-        public const byte Response_NotDataNode              = 3; 
-        public const byte Response_ObjectOk                 = 4; 
-        public const byte Response_ObjectMissing            = 5;
-        public const byte Response_ReConfigure              = 6;
-        public const byte Response_Configuration            = 7;
-        public const byte Response_InternalServerError      = 8;
-        public const byte Response_ReadKeyError             = 9;
-        public const byte Response_ReadDataError            = 10;
-        public const byte Response_UnknownNode              = 11;
-        public const byte Response_EndPointMismatch         = 12;
-        public const byte Response_NodeExists               = 13;
-        public const byte Response_Accepted                 = 14;
-        public const byte Response_DataNodeNotReady         = 15;
+        private const int MaxLength = 1024 * 1024 * 1024; // 1Gb
 
-        public const int MaxLength = 1024 * 1024 * 1024; // 1Gb
-
+        /// <summary>
+        /// Test the server.
+        /// </summary>
+        /// <remarks>
+        /// This requires a master node to be running based on SampleDevMaster2.txt, 
+        /// a data node using SampleDevDataNode.txt, and another node using 
+        /// SampleDevDataNode2.txt.  So you'll want 4 console windows open total.
+        /// </remarks>
+        /// <returns></returns>
         public bool Test()
         {
             if (GetConfig() &&
                 NodeDown() && 
-                AddNode("localhost:12349", 2048) &&
-                ChangeNode("localhost:12349", 4096) &&
-                RemoveNode("localhost:12349") && 
+                AddNode("localhost:12347", 2048) &&
+                Pause(1) && 
+                ChangeNode("localhost:12347", 4096) &&
+                Pause(1) &&
+                RemoveNode("localhost:12347") && 
+                Pause(1) &&
                 GetStats() && 
                 PutObject("abc", "Hello, World!") && 
                 GetObject("abc", "Hello, World!") &&
-                DeleteObject() && 
+                DeleteObject("abc") && 
                 ChangeConfig() && 
                 TestThreads())
             {
@@ -205,7 +248,23 @@ namespace LoopCacheConsole
             return false;
         }
 
-        string BytesToString(byte[] data)
+        /// <summary>
+        /// Used by Test method to wait between tests.
+        /// </summary>
+        /// <param name="numSeconds"></param>
+        /// <returns></returns>
+        private bool Pause(int numSeconds)
+        {
+            Thread.Sleep(1000 * numSeconds);
+            return true;
+        }
+
+        /// <summary>
+        /// Convert a byte array to a string using UTF8 encoding.
+        /// </summary>
+        /// <param name="data"></param>
+        /// <returns></returns>
+        private string BytesToString(byte[] data)
         {
             MemoryStream ms = new MemoryStream(data);
             using (StreamReader sr = new StreamReader(ms))
@@ -215,7 +274,11 @@ namespace LoopCacheConsole
             }
         }
 
-        bool GetConfig() 
+        /// <summary>
+        /// Reload the ring configuratio from master.
+        /// </summary>
+        /// <returns></returns>
+        public bool GetConfig() 
         {
             byte[] data = new byte[0];
             var response = SendMessage(this.masterNode, Request_GetConfig, data);
@@ -243,7 +306,12 @@ namespace LoopCacheConsole
             //     [Locations]     ints
             // ]
 
-            using (MemoryStream ms = new MemoryStream(response.Item2))
+            return ReadConfigBytes(response.Item2);
+        }
+
+        private bool ReadConfigBytes(byte[] data)
+        {
+            using (MemoryStream ms = new MemoryStream(data))
             {
                 using (BinaryReader reader = new BinaryReader(ms))
                 {
@@ -261,6 +329,11 @@ namespace LoopCacheConsole
                         int port = IPAddress.NetworkToHostOrder(reader.ReadInt32());
                         IPEndPoint ipep = GetIPEndPoint(hostname, port);
                         long maxNumBytes = IPAddress.NetworkToHostOrder(reader.ReadInt64());
+
+                        Node node = new Node(hostname, port, maxNumBytes, ipep);
+                        this.dataNodes.Add(string.Format("{0}:{1}", 
+                            hostname, port), node);
+
                         int numLocations = IPAddress.NetworkToHostOrder(reader.ReadInt32());
                         for (int i = 0; i < numLocations; i++)
                         {
@@ -270,7 +343,7 @@ namespace LoopCacheConsole
                                 Console.WriteLine("Already saw location {0}", location);
                                 return false;
                             }
-                            this.sortedLocations.Add(location, ipep);
+                            this.sortedLocations.Add(location, node);
                         }
                     }
                 }
@@ -279,15 +352,23 @@ namespace LoopCacheConsole
             return true;
         }
 
-        bool NodeDown()
+        public bool NodeDown()
         {
             // TODO
             return true;
         }
 
+        /// <summary>
+        /// Add a node to the cluster.
+        /// </summary>
+        /// <remarks>The node needs to be up and running already.</remarks>
+        /// <param name="hostPort">hostname:port for the new node</param>
+        /// <param name="maxNumBytes">Max number of bytes the new node can handle</param>
+        /// <returns>true if the message was delivered to master successfully, but
+        /// the master does some work in the background after returning, so 
+        /// it's possible for something to fail afterwards.</returns>
         public bool AddNode(string hostPort, long maxNumBytes)
         {
-            // TODO
             string[] tokens = hostPort.Split(':');
             if (tokens.Length != 2)
             {
@@ -335,25 +416,25 @@ namespace LoopCacheConsole
             return true;
         }
 
-        bool RemoveNode(string hostPort)
+        public bool RemoveNode(string hostPort)
         {
             // TODO
             return true;
         }
 
-        bool ChangeNode(string hostPort, long maxNumBytes)
+        public bool ChangeNode(string hostPort, long maxNumBytes)
         {
             // TODO
             return true;
         }
 
-        bool GetStats()
+        public bool GetStats()
         {
             // TODO
             return true;
         }
 
-        bool GetObject(string key, string expectedValue)
+        public bool GetObject(string key, string expectedValue)
         {
             // Make sure the data we get back matches what's passed in
             IPEndPoint node = GetNodeForKey(key);
@@ -383,23 +464,23 @@ namespace LoopCacheConsole
             
         }
 
-        bool PutObject(string testKey, string testData)
+        public bool PutObject(string keyString, string dataString)
         {
             // PutObject binary data format:
             // 
             // KeyLength        int 
-            // Key                byte[] UTF8 String 
-            // ObjectLength        int 
-            // Object            byte[]
+            // Key              byte[] UTF8 String 
+            // ObjectLength     int 
+            // Object           byte[]
 
             byte[] message = null;
             using (MemoryStream ms = new MemoryStream())
             {
                 BinaryWriter w = new BinaryWriter(ms);
-                byte[] key = Encoding.UTF8.GetBytes(testKey);
+                byte[] key = Encoding.UTF8.GetBytes(keyString);
                 w.Write(IPAddress.HostToNetworkOrder(key.Length));
                 w.Write(key);
-                byte[] data = Encoding.UTF8.GetBytes(testData);
+                byte[] data = Encoding.UTF8.GetBytes(dataString);
                 w.Write(IPAddress.HostToNetworkOrder(data.Length));
                 w.Write(data);
                 w.Flush();
@@ -407,7 +488,7 @@ namespace LoopCacheConsole
                 message = ms.ToArray();
             }
 
-            IPEndPoint node = GetNodeForKey(testKey);
+            IPEndPoint node = GetNodeForKey(keyString);
             var response = SendMessage(node, Request_PutObject, message);
             if (response == null)
             {
@@ -425,21 +506,103 @@ namespace LoopCacheConsole
             return true;
         }
 
-        bool DeleteObject()
+        public bool DeleteObject(string keyString)
+        {
+            IPEndPoint node = GetNodeForKey(keyString);
+
+            var response = SendMessage(node, Request_DeleteObject, 
+                Encoding.UTF8.GetBytes(keyString));
+
+            if (response == null)
+            {
+                Console.WriteLine("DeleteObject got a null response");
+                return false;
+            }
+
+            switch (response.Item1)
+            {
+                case Response_ObjectOk:
+                    return true;
+                case Response_ReConfigure:
+                    return ReadConfigBytes(response.Item2);
+                default:
+                    Console.WriteLine("Got unexpected response type {0} for DeleteObject",
+                        response.Item1, Response_ObjectOk);
+                    return false;
+            }
+        }
+
+        public bool ChangeConfig()
         {
             return true;
         }
 
-        bool ChangeConfig()
-        {
-            return true;
-        }
-
-        bool TestThreads()
+        public bool TestThreads()
         {
             // TODO - Spawn a bunch of threads and stress-test the server
             return true;
         }
 
+        /// <summary>
+        /// Gets the latest ring configuration from the master and prints
+        /// out data nodes to the console.
+        /// </summary>
+        /// <returns></returns>
+        public void PrintList()
+        {
+            GetConfig();
+
+            foreach (var kvp in this.dataNodes)
+            {
+                Node node = kvp.Value;
+                Console.WriteLine("{0}:{1}\t{2}", node.Host, node.Port, node.MaxNumBytes);
+            }
+        }
+
+        /// <summary>
+        /// The client's representation of a data node.
+        /// </summary>
+        public class Node
+        {
+            /// <summary>
+            /// Hostname of the node
+            /// </summary>
+            public string Host { get; set; }
+
+            /// <summary>
+            /// Port number the node is listening on
+            /// </summary>
+            public int Port { get; set; }
+
+            /// <summary>
+            /// Max number of bytes the node can handle
+            /// </summary>
+            public long MaxNumBytes { get; set; }
+
+            /// <summary>
+            /// The end point the node is listening on.
+            /// </summary>
+            public IPEndPoint EndPoint { get; set; }
+
+            /// <summary>
+            /// Create a new default instance.
+            /// </summary>
+            public Node(){ }
+
+            /// <summary>
+            /// Create an instance based on all its properties.
+            /// </summary>
+            /// <param name="host"></param>
+            /// <param name="port"></param>
+            /// <param name="maxNumBytes"></param>
+            /// <param name="ipep"></param>
+            public Node(string host, int port, long maxNumBytes, IPEndPoint ipep)
+            {
+                this.Host = host;
+                this.Port = port;
+                this.MaxNumBytes = maxNumBytes;
+                this.EndPoint = ipep;
+            }
+        }
     }
 }
