@@ -97,6 +97,17 @@ namespace LoopCacheLib
                 this.ringLock.EnterReadLock();
                 foreach (var node in this.Nodes.Values)
                 {
+                    if (node.IPEndPoint == null)
+                    {
+                        // Why is this null?  It never should be.
+                        CacheHelper.LogWarning(string.Format(
+                            "FindNodeByIP Node {0} IPEndPoint is null",
+                            node.GetName()));
+
+                        node.IPEndPoint = 
+                            CacheHelper.GetIPEndPoint(node.HostName, node.PortNumber);
+                    }
+
                     if (node.IPEndPoint.Equals(endPoint))
                     {
                         return node;
@@ -146,13 +157,32 @@ namespace LoopCacheLib
                     throw new Exception("Already added node " + nodeName);
                 }
                 node.Status = CacheNodeStatus.Down;
-                
-                // Make sure DNS resolves
-                node.IPEndPoint = CacheHelper.GetIPEndPoint(node.HostName, node.PortNumber);
 
                 this.Nodes.Add(nodeName, node);
 
                 DetermineNodeLocations();
+                LookupEndPoints();
+            }
+            finally
+            {
+                this.ringLock.ExitWriteLock();
+            }
+        }
+
+        /// <summary>
+        /// Remove the node from the ring.
+        /// </summary>
+        /// <remarks>Figures out new node locations before returning.</remarks>
+        /// <param name="name"></param>
+        public void RemoveNodeByName(string name)
+        {
+            this.ringLock.EnterWriteLock();
+            try
+            {
+                this.Nodes.Remove(name);
+
+                DetermineNodeLocations();
+                LookupEndPoints();
             }
             finally
             {
@@ -186,9 +216,7 @@ namespace LoopCacheLib
         {
             foreach (var node in this.Nodes.Values)
             {
-                node.IPEndPoint = 
-                    CacheHelper.GetIPEndPoint(
-                        node.HostName, node.PortNumber);
+                node.IPEndPoint = CacheHelper.GetIPEndPoint(node.HostName, node.PortNumber);
             }
         }
 
@@ -530,7 +558,14 @@ namespace LoopCacheLib
         /// <remarks>HostName gets converted to upper case</remarks>
         public string GetName()
         {
-            return (this.HostName + ":" + this.PortNumber.ToString()).ToUpper();
+            return CreateName(this.HostName, this.PortNumber);
+        }
+
+        /// <summary>Get the unique name for a node.</summary>
+        /// <remarks>HostName gets converted to upper case</remarks>
+        public static string CreateName(string hostName, int portNumber)
+        {
+            return (hostName + ":" + portNumber.ToString()).ToUpper();
         }
 
         /// <summary>Get a string dump of the state of this node</summary>

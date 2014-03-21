@@ -425,6 +425,9 @@ namespace LoopCacheLib
             if (already != null)
                 throw new CacheMessageException(CacheResponseTypes.NodeExists);
 
+            // Make sure DNS resolves
+            newNode.IPEndPoint = CacheHelper.GetIPEndPoint(newNode.HostName, newNode.PortNumber);
+
             // First do a quick check to see if the node is up and
             // trying to register with the master.
             CacheMessage ping = new CacheMessage(CacheRequestTypes.Ping);
@@ -567,10 +570,73 @@ namespace LoopCacheLib
                 throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
 
             CacheMessage response = new CacheMessage();
+            response.MessageType = (byte)CacheResponseTypes.Accepted;
 
-            // TODO
+            CacheNode nodeToRemove = null;
+            using (MemoryStream ms = new MemoryStream(data))
+            {
+                using (BinaryReader br = new BinaryReader(ms))
+                {
+                    int hostLen = FromNetwork(br.ReadInt32());
+                    byte[] hostData = new byte[hostLen];
+                    if (br.Read(hostData, 0, hostLen) != hostLen)
+                    {
+                        throw new Exception(
+                            "data shorter than expected");
+                    }
+                    string hostName = Encoding.UTF8.GetString(hostData);
+                    int portNumber = FromNetwork(br.ReadInt32());
+                    nodeToRemove = this.config.Ring
+                        .FindNodeByName(CacheNode.CreateName(hostName, portNumber));
+                }
+            }
+
+            if (nodeToRemove == null)
+            {
+                return new CacheMessage(CacheResponseTypes.UnknownNode);
+            }
+
+            Thread t = new Thread(BackgroundAddNode);
+            t.Start(nodeToRemove);
 
             return response;
+        }
+
+        private void BackGroundRemoveNode(object nodeToRemoveObj)
+        {
+            try
+            {
+                CacheNode nodeToRemove = nodeToRemoveObj as CacheNode;
+
+                this.config.Ring.RemoveNodeByName(nodeToRemove.GetName());
+            
+                // Save edits to the config file so the node persists if we restart master
+                CacheConfig.Save(this.configFilePath, this.config);
+
+                // Iterate through data nodes and send them all the new config
+                var nodeEndPoints = this.config.Ring.GetNodeEndPoints();
+
+                // Create a list of end points that need the configuration
+                SortedList<string, IPEndPoint> endPointsToPush = 
+                    new SortedList<string, IPEndPoint>();
+
+                foreach (var kvp in nodeEndPoints)
+                {
+                    // Skip self if master is also a data node
+                    if (IsThisNodeEndPoint(kvp.Value))
+                        continue;
+
+                    endPointsToPush.Add(kvp.Key, kvp.Value);
+                }
+
+                PushConfigToNodes(endPointsToPush);
+            }
+            catch (Exception ex)
+            {
+                // We're on a background thread here so there's nothing we can do 
+                // to let the caller know, since we returned a response already.
+                CacheHelper.LogError("Unable to remove node", ex);
+            }
         }
 
         /// <summary>

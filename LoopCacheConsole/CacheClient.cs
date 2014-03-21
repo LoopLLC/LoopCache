@@ -416,9 +416,55 @@ namespace LoopCacheConsole
             return true;
         }
 
+        /// <summary>
+        /// Remove a node from the cluster.
+        /// </summary>
+        /// <param name="hostPort"></param>
+        /// <returns></returns>
         public bool RemoveNode(string hostPort)
         {
-            // TODO
+            string[] tokens = hostPort.Split(':');
+            if (tokens.Length != 2)
+            {
+                throw new Exception("Expected hostname:port");
+            }
+            string hostname = tokens[0];
+            string portstr = tokens[1];
+            int port;
+            if (!int.TryParse(portstr, out port))
+            {
+                throw new Exception("Invalid port");
+            }
+
+            //     Request Layout:
+
+            //          HostLen         int
+            //          Host            byte[] UTF8 string
+            //          Port            int
+
+            byte[] message = null;
+            using (MemoryStream ms = new MemoryStream())
+            {
+                BinaryWriter w = new BinaryWriter(ms);
+
+                byte[] hostBytes = Encoding.UTF8.GetBytes(hostname);
+                w.Write(IPAddress.HostToNetworkOrder(hostBytes.Length));
+                w.Write(hostBytes);
+                w.Write(IPAddress.HostToNetworkOrder(port));
+
+                w.Flush();
+                ms.Flush();
+                message = ms.ToArray();
+            }
+
+            var response = SendMessage(masterNode, Request_RemoveNode, message);
+            if (response.Item1 != Response_Accepted)
+            {
+                Console.WriteLine("Got {0} instead of {1} for RemoveNode",
+                    response.Item1, Response_Accepted);
+                return false;
+            }
+
             return true;
         }
 
