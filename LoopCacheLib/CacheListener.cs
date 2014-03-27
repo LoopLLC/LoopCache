@@ -95,6 +95,10 @@ namespace LoopCacheLib
             {
                 CacheHelper.TraceFilePath = config.TraceFilePath;
             }
+
+            CacheHelper.LogTrace("Starting listener with config settings: \r\n{0}",
+                this.config.GetTrace());
+
             this.ipep = new IPEndPoint(IPAddress.Parse(this.config.ListenerIP), 
                     this.config.ListenerPortNumber);
 
