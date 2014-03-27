@@ -29,7 +29,7 @@ namespace LoopCacheLib
         /// </summary>
         /// <remarks>
         /// Each datetime is a bucket of keys, since more than one may be
-        /// accessed at the same time.  
+        /// saved at the same time.  
         /// </remarks>
         private SortedList<DateTime, List<string>> keysByTime;
 
@@ -253,7 +253,7 @@ namespace LoopCacheLib
         /// <summary>
         /// Accept a new client TCP request.
         /// </summary>
-        /// <remarks>This is an asynch method so it returns control back to the caller 
+        /// <remarks>This is an async method so it returns control back to the caller 
         /// before it completes.</remarks>
         /// <param name="client"></param>
         /// <returns></returns>
@@ -275,9 +275,8 @@ namespace LoopCacheLib
                         // method right after this line.
                         var request = await GetRequestFromNetworkStream(n);
 
-                        // Set the end point in case we need to validate it
-                        // later.
-                        request.ClientEndPoint = (IPEndPoint)client.Client .RemoteEndPoint;
+                        // Set the end point in case we need to validate it later.
+                        request.ClientEndPoint = (IPEndPoint)client.Client.RemoteEndPoint;
 
                         // Process the request and create a response message
                         CacheMessage response = ProcessRequest(request);
@@ -315,9 +314,7 @@ namespace LoopCacheLib
                     // The master node will use this response as a way to confirm
                     // that the data node is up and running, before it adds the
                     // node to the ring.
-                    CacheMessage response = new CacheMessage();
-                    response.MessageType = (byte)CacheResponseTypes.DataNodeNotReady;
-                    return response;
+                    return new CacheMessage(CacheResponseTypes.DataNodeNotReady);
                 }
 
                 switch (t)
@@ -383,9 +380,41 @@ namespace LoopCacheLib
                 throw new CacheMessageException(
                         CacheResponseTypes.NotMasterNode);
 
-            CacheMessage response = new CacheMessage();
+            CacheMessage response = new CacheMessage(CacheResponseTypes.Accepted);
 
-            // TODO
+            //  MessageType     byte (2)
+            //  DataLength      int
+            //  Data            byte[]
+            //      HostLen         int
+            //      Host            byte[] UTF8 string
+            //      Port            int
+
+            string nodeName = null;
+            using (MemoryStream ms = new MemoryStream(data))
+            {
+                using (BinaryReader reader = new BinaryReader(ms))
+                {
+                    int hostLen = FromNetwork(reader.ReadInt32());
+                    byte[] hostData = new byte[hostLen];
+                    if (reader.Read(hostData, 0, hostLen) != hostLen)
+                    {
+                        throw new Exception("data shorter than expected");
+                    }
+                    string hostName = Encoding.UTF8.GetString(hostData);
+                    int portNumber = FromNetwork(reader.ReadInt32());
+                    nodeName = CacheNode.CreateName(hostName, portNumber);
+                }
+            }
+
+            if (nodeName != null)
+            {
+                CacheNode node = this.config.Ring.FindNodeByName(nodeName);
+                if (node == null)
+                {
+                    return new CacheMessage(CacheResponseTypes.UnknownNode);
+                }
+                this.config.Ring.SetNodeStatus(node, CacheNodeStatus.Questionable);
+            }
 
             return response;
         }
@@ -652,22 +681,89 @@ namespace LoopCacheLib
         /// A request for the master node to make a change to a node and push the
         /// change out to all data nodes
         /// </summary>
+        /// <remarks>Currently, the only thing that can change is the allocated number 
+        /// of bytes.  This still requires pushing config out to all nodes, since
+        /// it affects the ring locations.</remarks>
         public CacheMessage ChangeNode(byte[] data)
         {
             if (!this.config.IsMaster)
                 throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
 
-            CacheMessage response = new CacheMessage();
+            CacheMessage response = new CacheMessage(CacheResponseTypes.Accepted);
 
-            // TODO
+            CacheNode changedNode = null;
+            using (MemoryStream ms = new MemoryStream(data))
+            {
+                using (BinaryReader br = new BinaryReader(ms))
+                {
+                    changedNode = DeserializeNode(br, false);
+                }
+            }
+
+            if (changedNode.MaxNumBytes <= 0)
+            {
+                CacheHelper.LogWarning(string.Format(
+                    "Tried to change node {0} with MaxNumBytes {1}", changedNode.GetName(),
+                    changedNode.MaxNumBytes));
+
+                return new CacheMessage(CacheResponseTypes.InvalidConfiguration);
+            }
+
+            CacheNode actualNode = this.config.Ring.FindNodeByName(changedNode.GetName());
+
+            if (actualNode == null)
+            {
+                return new CacheMessage(CacheResponseTypes.UnknownNode);
+            }
+
+            // I think we can get away with doing this outside of a lock
+            actualNode.MaxNumBytes = changedNode.MaxNumBytes;
+
+            Thread t = new Thread(BackgroundChangeNode);
+            t.Start(actualNode);
 
             return response;
+        }
+
+        private void BackgroundChangeNode(object newNodeObj)
+        {
+            try
+            {
+                CacheNode changedNode = newNodeObj as CacheNode;
+
+                // Save edits to the config file so the node persists if we restart master
+                CacheConfig.Save(this.configFilePath, this.config);
+
+                // Iterate through data nodes and send them all the new config
+                var nodeEndPoints = this.config.Ring.GetNodeEndPoints();
+
+                // Create a list of end points that need the configuration
+                SortedList<string, IPEndPoint> endPointsToPush =
+                    new SortedList<string, IPEndPoint>();
+
+                foreach (var kvp in nodeEndPoints)
+                {
+                    // Skip self if master is also a data node
+                    if (IsThisNodeEndPoint(kvp.Value))
+                        continue;
+
+                    endPointsToPush.Add(kvp.Key, kvp.Value);
+                }
+
+                PushConfigToNodes(endPointsToPush);
+            }
+            catch (Exception ex)
+            {
+                // We're on a background thread here so there's nothing we can do 
+                // to let the caller know, since we returned a response already.
+                CacheHelper.LogError("Unable to change node", ex);
+            }
         }
 
         /// <summary>A request for node statistics</summary>
         public CacheMessage GetStats(byte[] data)
         {
-            CacheMessage response = new CacheMessage();
+            CacheMessage response = new CacheMessage(CacheResponseTypes.Accepted);
 
             // TODO
 
@@ -803,7 +899,74 @@ namespace LoopCacheLib
         {
             try
             {
-                // TODO - Do this without slowing down puts and gets
+                // The trick is to do this quickly, but do it without slowing down puts and gets
+
+                // Get a list of all keys held by this node
+                List<string> keys = new List<string>();
+
+                this.dataLock.EnterReadLock();
+
+                try
+                {
+                    foreach (var key in this.dataByKey.Keys)
+                    {
+                        keys.Add(key);
+                    }
+                }
+                finally
+                {
+                    this.dataLock.ExitReadLock();
+                }
+
+                foreach (var key in keys)
+                {
+                    int hash = CacheHelper.GetConsistentHashCode(key);
+                    CacheNode owningNode = this.config.Ring.GetNodeForHash(hash);
+                    if (!IsThisNode(owningNode))
+                    {
+                        // We found an object that this node doesn't own any more
+                        byte[] dataToMigrate = null;
+                        try
+                        {
+                            this.dataLock.EnterWriteLock();
+
+                            byte[] data;
+                            if (this.dataByKey.TryGetValue(key, out data))
+                            {
+                                dataToMigrate = data;
+
+                                // Delete the object
+                                DeleteObjectInWriteLock(key);
+                            }
+                            else
+                            {
+                                // Not sure why it would have been deleted in the time
+                                // since we got the list of keys.
+                                CacheHelper.LogTrace(
+                                    "Tried to migrate {0} but the key was missing", key);
+                            }
+                        }
+                        finally
+                        {
+                            this.dataLock.ExitWriteLock();
+                        }
+
+                        // Create a request with the object to be migrated
+                        CacheMessage request = new CacheMessage(CacheRequestTypes.PutObject);
+                        request.Data = dataToMigrate;
+
+                        // Send the object to the node that owns it
+                        var response = CacheHelper.SendRequest(request, owningNode.IPEndPoint);
+
+                        CacheResponseTypes responseType = (CacheResponseTypes)response.MessageType;
+                        if (responseType != CacheResponseTypes.ObjectOk)
+                        {
+                            CacheHelper.LogWarning(string.Format(
+                                "Tried to migrate {0} to {1}, got response {3}",
+                                key, owningNode.GetName(), responseType));
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -848,6 +1011,17 @@ namespace LoopCacheLib
             {
                 // We have to lock everything down to add something to the cache
                 this.dataLock.EnterWriteLock();
+
+                // TODO - Check how much memory we are using and eject old objects
+                // from memory if necessary, before storing this object.
+                // We can't just count the total number of bytes stored, unless we 
+                // want people to take allocator inefficiency into account when they
+                // configure the server.  Asking for how much memory the process is 
+                // using right now would slow things down a lot.
+
+                // TODO - Simply adding to a sorted list might not be good enough for 
+                // performance, so we might have to manage memory ourselves and use
+                // something like log-structured storage so that we waste as little as possible.
 
                 // Add or update the object
                 if (this.dataByKey.ContainsKey(key))
@@ -1090,6 +1264,64 @@ namespace LoopCacheLib
 
         }
 
+        /// <summary>
+        /// Called internally by methods that have already entered a write lock.
+        /// </summary>
+        /// <param name="keyString"></param>
+        /// <returns></returns>
+        private bool DeleteObjectInWriteLock(string keyString)
+        {
+            bool inDataByKey = false;
+
+            if (this.dataByKey.ContainsKey(keyString))
+            {
+                inDataByKey = true;
+
+                // Remove the object from the main list
+                this.dataByKey.Remove(keyString);
+            }
+
+            DateTime keyPutTime;
+            if (this.keyPutTimes.TryGetValue(keyString, out keyPutTime))
+            {
+                if (!inDataByKey)
+                {
+                    CacheHelper.LogTrace(
+                    "{0} was in keyPutTimes but not dataByKey",
+                    keyString);
+                }
+
+                // Remove the reference to the put time
+                this.keyPutTimes.Remove(keyString);
+
+                List<string> keys;
+                if (this.keysByTime.TryGetValue(keyPutTime, out keys))
+                {
+                    if (keys.Contains(keyString))
+                    {
+                        // Remove the key from the list at that put time
+                        keys.Remove(keyString);
+                    }
+                    else
+                    {
+                        CacheHelper.LogTrace(
+                            "{0} was not in keysByTime");
+                    }
+                }
+            }
+            else
+            {
+                if (inDataByKey)
+                {
+                    CacheHelper.LogTrace(
+                        "{0} was not in keyPutTimes",
+                        keyString);
+                }
+            }
+
+            return inDataByKey;
+        }
+
         private CacheMessage DeleteObject(string keyString)
         {
             // This method is called after we have determined that this node owns the key
@@ -1097,53 +1329,7 @@ namespace LoopCacheLib
             {
                 this.dataLock.EnterWriteLock();
 
-                bool inDataByKey = false;
-
-                if (this.dataByKey.ContainsKey(keyString))
-                {
-                    inDataByKey = true;
-
-                    // Remove the object from the main list
-                    this.dataByKey.Remove(keyString);
-                }
-
-                DateTime keyPutTime;
-                if (this.keyPutTimes.TryGetValue(keyString, out keyPutTime))
-                {
-                    if (!inDataByKey)
-                    {
-                        CacheHelper.LogTrace(
-                        "{0} was in keyPutTimes but not dataByKey", 
-                        keyString);
-                    }
-
-                    // Remove the reference to the put time
-                    this.keyPutTimes.Remove(keyString);
-
-                    List<string> keys;
-                    if (this.keysByTime.TryGetValue(keyPutTime, out keys))
-                    {
-                        if (keys.Contains(keyString))
-                        {
-                            // Remove the key from the list at that put time
-                            keys.Remove(keyString);
-                        }
-                        else
-                        {
-                            CacheHelper.LogTrace(
-                                "{0} was not in keysByTime");
-                        }
-                    }
-                }
-                else
-                {
-                    if (inDataByKey)
-                    {
-                        CacheHelper.LogTrace(
-                            "{0} was not in keyPutTimes", 
-                            keyString);
-                    }
-                }
+                bool inDataByKey = DeleteObjectInWriteLock(keyString);
 
                 CacheMessage response = new CacheMessage();
 
@@ -1324,8 +1510,7 @@ namespace LoopCacheLib
             byte[] hostData = new byte[hostLen];
             if (reader.Read( hostData, 0, hostLen) != hostLen)
             {
-                throw new Exception(
-                    "data shorter than expected");
+                throw new Exception("data shorter than expected");
             }
             node.HostName = Encoding.UTF8.GetString(hostData);
             node.PortNumber = FromNetwork(reader.ReadInt32());

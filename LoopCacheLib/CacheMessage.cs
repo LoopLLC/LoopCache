@@ -171,7 +171,13 @@ namespace LoopCacheLib
 
         /// <summary>The data node is still being added to the cluster and it's not
         /// yet ready to accept client requests</summary>
-        DataNodeNotReady = 15
+        DataNodeNotReady = 15, 
+
+        /// <summary>
+        /// An admin tried to add or change a node with invalid configuration settings.
+        /// </summary>
+        /// <remarks>This usually means MaxNumBytes is invalid</remarks>
+        InvalidConfiguration = 16
     }
 
     /// <summary>An exception thrown internally when processing messages</summary>
