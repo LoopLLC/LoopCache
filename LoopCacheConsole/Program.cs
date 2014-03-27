@@ -138,7 +138,7 @@ namespace LoopCacheConsole
                     Console.WriteLine("Unable to add new node, check master server logs");
                 }
             }
-            else if (args.Length == 1 && args[0].ToLower().Equals("-list"))
+            else if (args.Length >=1 && args[0].ToLower().Equals("-list"))
             {
                 if (args.Length != 2)
                 {
@@ -149,6 +149,78 @@ namespace LoopCacheConsole
 
                 CacheClient client = new CacheClient(args[1]);
                 client.PrintList();
+            }
+            else if (args.Length >= 1 && args[0].ToLower().Equals("-testservice"))
+            {
+                if (args.Length != 2)
+                {
+                    Console.WriteLine("Missing node hostname:port.  See usage:");
+                    Usage();
+                    return;
+                }
+
+                CacheClient client = new CacheClient(args[1]);
+
+                // Make sure the node is listening
+                if (!client.Ping())
+                {
+                    Console.WriteLine("Unable to ping master node");
+                    return;
+                }
+
+                if (!client.GetConfig())
+                {
+                    Console.WriteLine("Unable to get ring configuration");
+                    return;
+                }
+
+                bool allTestsPassed = true;
+
+                List<Guid> testObjects = new List<Guid>();
+                for (int i = 0; i < 1000; i++)
+                {
+                    Guid g = Guid.NewGuid();
+                    testObjects.Add(g);
+                }
+
+                // Put the objects
+                Parallel.ForEach(testObjects, g =>
+                    {
+                        var ok = client.PutObject(g.ToString(), g.ToString());
+                        //Console.WriteLine("Put object {0}: {1}",
+                        //    g.ToString(), ok);
+                        if (!ok) allTestsPassed = false;
+                    });
+
+                Console.WriteLine("Done putting objects");
+
+                if (!allTestsPassed)
+                {
+                    Console.WriteLine("Some puts failed");
+                    return;
+                }
+
+                // Delete the objects
+                Parallel.ForEach(testObjects, g =>
+                {
+                    var ok = client.DeleteObject(g.ToString());
+                    //Console.WriteLine("Deleted object {0}: {1}",
+                    //    g.ToString(), ok);
+                    if (!ok) allTestsPassed = false;
+                });
+
+                Console.WriteLine("Done deleting objects");
+
+                if (!allTestsPassed)
+                {
+                    Console.WriteLine("Some deletes failed");
+                    return;
+                }
+
+                if (allTestsPassed)
+                {
+                    Console.WriteLine("All puts and deletes succeeded");
+                }
             }
 			else
 			{
@@ -171,6 +243,7 @@ namespace LoopCacheConsole
             Console.WriteLine("\t-add masterHost:port newNodeHost:port maxNumBytes\t" + 
                 "Add a new node to the cluster");
             Console.WriteLine("\t-list masterHost:port\tList the data nodes in the cluster");
+            Console.WriteLine("\t-testservice host:port\tUnit test the windows service with a simplified set of tests that don't require other nodes.");
 		}
 
 		static bool TestCacheRing()

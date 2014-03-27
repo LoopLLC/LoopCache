@@ -165,8 +165,15 @@ namespace LoopCacheConsole
                     // Write the request
                     BinaryWriter w = new BinaryWriter(stream);
                     w.Write(messageType);
-                    w.Write(IPAddress.HostToNetworkOrder(data.Length));
-                    w.Write(data);
+                    if (data == null)
+                    {
+                        w.Write(IPAddress.HostToNetworkOrder((int)0));
+                    }
+                    else
+                    {
+                        w.Write(IPAddress.HostToNetworkOrder(data.Length));
+                        w.Write(data);
+                    }
                     w.Flush();
 
                     // Read the response
@@ -178,7 +185,11 @@ namespace LoopCacheConsole
                         throw new Exception(
                             "SendMessage got a response that exceeded max length");
                     }
-                    byte[] responseData = r.ReadBytes(responseLength);
+                    byte[] responseData = new byte[0];
+                    if (responseLength > 0)
+                    {
+                        responseData = r.ReadBytes(responseLength);
+                    }
 
                     return new Tuple<byte, byte[]>(responseType, responseData);
                 }
@@ -417,6 +428,17 @@ namespace LoopCacheConsole
         }
 
         /// <summary>
+        /// Ping the master node
+        /// </summary>
+        /// <returns></returns>
+        public bool Ping()
+        {
+            var response = SendMessage(masterNode, Request_Ping, null);
+            if (response == null) return false;
+            return response.Item1 == Response_Accepted;
+        }
+
+        /// <summary>
         /// Remove a node from the cluster.
         /// </summary>
         /// <param name="hostPort"></param>
@@ -535,6 +557,11 @@ namespace LoopCacheConsole
             }
 
             IPEndPoint node = GetNodeForKey(keyString);
+            if (node == null)
+            {
+                Console.WriteLine("Could not get node for key: {0}", keyString);
+                return false;
+            }
             var response = SendMessage(node, Request_PutObject, message);
             if (response == null)
             {
