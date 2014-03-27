@@ -6,7 +6,7 @@ A distributed key-value memory store, similar to memcached, written in C#
 Eric Z. Beard
 eric@loopfx.com
 
-NOTE: This is not even close to functional yet!  It compiles, and some basic tests pass.  That's it.
+This project is still very early in development.  Basic unit tests pass, but it hasn't seen any real-world usage yet.
 
 ## High Level Requirements
 
@@ -26,7 +26,7 @@ NOTE: This is not even close to functional yet!  It compiles, and some basic tes
 
 ## Consistent Hashing
 
-I would suggest a quick google search for consistent hashing, there are some good articles out there that explain it pretty well.  
+I would suggest that you do a quick Google search for consistent hashing.  There are some good articles out there that explain it pretty well.  
 
 The idea is that you want to spread objects out over a cluster of cache machines in a way that their assigned locations are somewhat stable when a node is added or removed.  We could use a simplistic approach and use a modulus of the hashed key like this:
 
