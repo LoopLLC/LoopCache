@@ -39,6 +39,22 @@ namespace LoopCacheLib
         private SortedList<string, DateTime> keyPutTimes;
 
         /// <summary>
+        /// The total number of bytes in dataByKey
+        /// </summary>
+        private long totalDataBytes;
+
+        /// <summary>
+        /// The total number of bytes in WorkingSet64 the last time we checked
+        /// </summary>
+        private long latestRAMBytes;
+
+        /// <summary>
+        /// The relationship of the total data bytes to actual RAM usage, 
+        /// based on the last time we checked the RAM usage.
+        /// </summary>
+        private double ramMultiplier;
+
+        /// <summary>
         /// Synchronizes access to the data in the cache
         /// </summary>
         private ReaderWriterLockSlim dataLock = new ReaderWriterLockSlim();
@@ -452,7 +468,7 @@ namespace LoopCacheLib
                 }
             }
 
-            // First make sure we don't already have this node
+            // Make sure we don't already have this node
             CacheNode already = this.config.Ring.FindNodeByName(newNode.GetName());
 
             if (already != null)
@@ -461,8 +477,7 @@ namespace LoopCacheLib
             // Make sure DNS resolves
             newNode.IPEndPoint = CacheHelper.GetIPEndPoint(newNode.HostName, newNode.PortNumber);
 
-            // First do a quick check to see if the node is up and
-            // trying to register with the master.
+            // Do a quick check to see if the node is up and trying to register with the master.
             CacheMessage ping = new CacheMessage(CacheRequestTypes.Ping);
             CacheMessage pingResponse = CacheHelper.SendRequest(ping, 
                     CacheHelper.GetIPEndPoint(newNode.HostName, newNode.PortNumber));
@@ -480,7 +495,7 @@ namespace LoopCacheLib
                 throw new CacheMessageException(CacheResponseTypes.InternalServerError); 
             }
 
-            // Now we know the data node was started and it's trying to register.
+            // Now we know that the data node was started and it's trying to register.
 
             // Spawn a background thread to do this and return to 
             // the caller immediately.  Push to nodes in parallel and 
@@ -635,7 +650,7 @@ namespace LoopCacheLib
             return response;
         }
 
-        private void BackGroundRemoveNode(object nodeToRemoveObj)
+        private void BackgroundRemoveNode(object nodeToRemoveObj)
         {
             try
             {
@@ -1022,6 +1037,21 @@ namespace LoopCacheLib
                 // want people to take allocator inefficiency into account when they
                 // configure the server.  Asking for how much memory the process is 
                 // using right now would slow things down a lot.
+                /*
+
+                 
+                 We store the total number of bytes in the objects we're storing, but this is 
+                 far short of the actual amount of RAM used by the process.  But we don't want
+                 to check the actual process memory every time we put, since this will slow
+                 down puts too much.  Check actual memory usage on a background thread, and 
+                 store a multiplier for the relationship between the number of bytes stored 
+                 and the number of bytes of RAM.
+
+                 e.g. we're storing 1000 bytes, and using 2000 bytes of RAM, the multiplier is 2.
+
+                 Use the multiplier times the number of data bytes stored as an approximation.
+                 *
+                 */
 
                 // TODO - Simply adding to a sorted list might not be good enough for 
                 // performance, so we might have to manage memory ourselves and use
@@ -1632,7 +1662,6 @@ namespace LoopCacheLib
 
                 // Not sure what to do here.  Doing nothing will result in a retry.
                 // But an unexpected response might mean it will never succeed.
-                // TODO
             }
             catch (SocketException)
             {
@@ -1712,6 +1741,28 @@ namespace LoopCacheLib
         private bool StoppablePause(int pauseSeconds)
         {
             return StoppablePause(DateTime.UtcNow.AddSeconds(pauseSeconds), 500);
+        }
+
+
+        /// <summary>
+        /// Check the RAM usage of the process every few seconds
+        /// </summary>
+        private void MonitorRAM()
+        {
+            while (this.shouldRun)
+            {
+                try
+                {
+                    var currentProcess = System.Diagnostics.Process.GetCurrentProcess();
+                    this.latestRAMBytes = currentProcess.WorkingSet64;
+
+                    StoppablePause(5);
+                }
+                catch (Exception ex)
+                {
+                    CacheHelper.LogTrace("Failed to monitor RAM: {0}", ex.ToString());
+                }
+            }
         }
 
         private int ToNetwork(int i)
