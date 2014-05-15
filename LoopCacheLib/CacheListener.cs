@@ -88,6 +88,11 @@ namespace LoopCacheLib
         private TcpListener listener;
 
         /// <summary>
+        /// If this listener is a data node, a reference to this node in the ring.
+        /// </summary>
+        private CacheNode localDataNode;
+
+        /// <summary>
         /// Create an uninitialized instance of the listener
         /// </summary>
         /// <remarks>
@@ -258,6 +263,23 @@ namespace LoopCacheLib
                     else
                     {
                         CacheHelper.LogTrace("Successfully registered with master");
+
+                        // Store a reference to the local data node
+                        foreach (CacheNode node in this.config.Ring.Nodes.Values)
+                        {
+                            if (IsThisNode(node))
+                            {
+                                this.localDataNode = node;
+                                break;
+                            }
+                        }
+
+                        if (this.localDataNode == null)
+                        {
+                            // This should never happen
+                            throw new Exception(
+                                "RegisterWithMaster succeeded, but there is no local node");
+                        }
                     }
 
                 } while (this.config.Ring == null && this.shouldRun);
@@ -1031,41 +1053,75 @@ namespace LoopCacheLib
                 // We have to lock everything down to add something to the cache
                 this.dataLock.EnterWriteLock();
 
-                // TODO - Check how much memory we are using and eject old objects
+                // Check how much memory we are using and eject old objects
                 // from memory if necessary, before storing this object.
                 // We can't just count the total number of bytes stored, unless we 
                 // want people to take allocator inefficiency into account when they
                 // configure the server.  Asking for how much memory the process is 
                 // using right now would slow things down a lot.
-                /*
+               
+                // We store the total number of bytes in the objects we're storing, but this is 
+                // far short of the actual amount of RAM used by the process.  But we don't want
+                // to check the actual process memory every time we put, since this will slow
+                // down puts too much.  Check actual memory usage on a background thread, and 
+                // store a multiplier for the relationship between the number of bytes stored 
+                // and the number of bytes of RAM.
 
-                 
-                 We store the total number of bytes in the objects we're storing, but this is 
-                 far short of the actual amount of RAM used by the process.  But we don't want
-                 to check the actual process memory every time we put, since this will slow
-                 down puts too much.  Check actual memory usage on a background thread, and 
-                 store a multiplier for the relationship between the number of bytes stored 
-                 and the number of bytes of RAM.
+                // e.g. we're storing 1000 bytes, and using 2000 bytes of RAM, the multiplier is 2.
 
-                 e.g. we're storing 1000 bytes, and using 2000 bytes of RAM, the multiplier is 2.
+                // Use the multiplier times the number of data bytes stored as an approximation.
 
-                 Use the multiplier times the number of data bytes stored as an approximation.
-                 *
-                 */
+                long currentRawBytes = this.totalDataBytes;
+                long approximateActualRAM = (long)(currentRawBytes * this.ramMultiplier);
+                long approximateObjectRAM = (long)(data.Length * this.ramMultiplier);
 
-                // TODO - Simply adding to a sorted list might not be good enough for 
-                // performance, so we might have to manage memory ourselves and use
-                // something like log-structured storage so that we waste as little as possible.
+                long initialCount = this.dataByKey.Count;
+                long numObjectsDeleted = 0;
 
+                while (approximateActualRAM + approximateObjectRAM > this.localDataNode.MaxNumBytes
+                    && this.keysByTime.Count > 0)
+                {
+                    // Remove the oldest object from memory
+                    var oldestKeys = this.keysByTime.Values[0];
+                    if (oldestKeys.Count == 0) continue;
+                    DeleteObjectInWriteLock(oldestKeys[0]);
+
+                    numObjectsDeleted++;
+
+                    // Re-caclulate RAM usage
+                    currentRawBytes = this.totalDataBytes;
+                    approximateActualRAM = (long)(currentRawBytes * this.ramMultiplier);
+                }
+
+                if (numObjectsDeleted > 0)
+                {
+                    // TODO - Once RAM is full, this will happen every time so we will
+                    // want to remove this trace statement.
+                    CacheHelper.LogTrace("Deleted {0} objects.  Initial count {1}, now {2}",
+                        numObjectsDeleted, initialCount, this.dataByKey.Count);
+                }
+                else
+                {
+                    CacheHelper.LogTrace("Did not delete any objects to make room");
+                }
+              
                 // Add or update the object
                 if (this.dataByKey.ContainsKey(key))
                 {
+                    // Subtract the length of the old version of the object
+                    this.totalDataBytes -= this.dataByKey[key].Length;
+
+                    // Store the updated object
                     this.dataByKey[key] = data;
                 }
                 else
                 {
+                    // Store the new object
                     this.dataByKey.Add(key, data);
                 }
+
+                // Add the length of the object
+                this.totalDataBytes += data.Length;
 
                 DateTime now = DateTime.UtcNow;
 
@@ -1274,9 +1330,6 @@ namespace LoopCacheLib
             // KeyLen    int (The length of the packet, which we already got)
             // Key       byte[] UTF8 string
 
-            if (!this.config.IsDataNode)
-                throw new CacheMessageException(CacheResponseTypes.NotDataNode);
-
             string keyString = null;
 
             try
@@ -1335,6 +1388,12 @@ namespace LoopCacheLib
                     {
                         // Remove the key from the list at that put time
                         keys.Remove(keyString);
+
+                        // If we removed the only entry in the bucket, remove the bucket
+                        if (keys.Count == 0)
+                        {
+                            this.keysByTime.Remove(keyPutTime);
+                        }
                     }
                     else
                     {
@@ -1743,7 +1802,6 @@ namespace LoopCacheLib
             return StoppablePause(DateTime.UtcNow.AddSeconds(pauseSeconds), 500);
         }
 
-
         /// <summary>
         /// Check the RAM usage of the process every few seconds
         /// </summary>
@@ -1755,6 +1813,22 @@ namespace LoopCacheLib
                 {
                     var currentProcess = System.Diagnostics.Process.GetCurrentProcess();
                     this.latestRAMBytes = currentProcess.WorkingSet64;
+
+                    // Figure out a multiplier to apply to the number of actual 
+                    // data bytes stored to get close to real RAM usage.
+
+                    long total = this.totalDataBytes;
+                    long latest = this.latestRAMBytes;
+
+                    if (latest > 0 && total > 0)
+                    {
+                        // e.g. Latest is 1024 and total is 512, multiplier is 2.0
+                        this.ramMultiplier = (double)((double)latest / (double)total);
+                    }
+                    else
+                    {
+                        this.ramMultiplier = 1.5;
+                    }
 
                     StoppablePause(5);
                 }
