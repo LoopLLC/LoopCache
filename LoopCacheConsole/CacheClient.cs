@@ -251,7 +251,8 @@ namespace LoopCacheConsole
                 GetObject("abc", "Hello, World!") &&
                 DeleteObject("abc") && 
                 ChangeConfig() && 
-                TestThreads())
+                TestThreads() && 
+                GetStats())
             {
                 return true;
             }
@@ -286,10 +287,10 @@ namespace LoopCacheConsole
         }
 
         /// <summary>
-        /// Reload the ring configuratio from master.
+        /// Reload the ring configuration from master.
         /// </summary>
         /// <returns></returns>
-        public bool GetConfig() 
+        public bool GetConfig()
         {
             byte[] data = new byte[0];
             var response = SendMessage(this.masterNode, Request_GetConfig, data);
@@ -322,6 +323,9 @@ namespace LoopCacheConsole
 
         private bool ReadConfigBytes(byte[] data)
         {
+            this.sortedLocations = new SortedList<int, Node>();
+            this.dataNodes = new SortedList<string, Node>();
+
             using (MemoryStream ms = new MemoryStream(data))
             {
                 using (BinaryReader reader = new BinaryReader(ms))
@@ -479,7 +483,7 @@ namespace LoopCacheConsole
                 message = ms.ToArray();
             }
 
-            var response = SendMessage(masterNode, Request_RemoveNode, message);
+            var response = SendMessage(this.masterNode, Request_RemoveNode, message);
             if (response.Item1 != Response_Accepted)
             {
                 Console.WriteLine("Got {0} instead of {1} for RemoveNode",
@@ -496,10 +500,92 @@ namespace LoopCacheConsole
             return true;
         }
 
+        /// <summary>
+        /// Get stats from all nodes and print out the results.
+        /// </summary>
+        /// <returns></returns>
         public bool GetStats()
         {
-            // TODO
-            return true;
+            Console.WriteLine("Cluster Stats\t\t{0}", DateTime.Now.ToString());
+
+            GetConfig();
+
+            bool allSucceeded = true;
+
+            foreach (var kvp in this.dataNodes)
+            {
+                Node node = kvp.Value;
+                var response = SendMessage(node.EndPoint, Request_GetStats, new byte[0]);
+                if (response.Item1 != Response_Accepted)
+                {
+                    Console.WriteLine("Got {0} instead of {1} from {2}",
+                        response.Item1, Response_Accepted, node.EndPoint);
+                    allSucceeded = false;
+                    continue;
+                }
+                else
+                {
+                    using (MemoryStream ms = new MemoryStream(response.Item2))
+                    {
+                        using (BinaryReader reader = new BinaryReader(ms))
+                        {
+                            //int numNodes = IPAddress.NetworkToHostOrder(reader.ReadInt32());
+
+                            // Binary Response Format
+                            //
+                            // NumObjects       int
+                            // TotalDataBytes   long
+                            // LatestRAMBytes   long
+                            // RAMMultiplierLen int
+                            // RAMMultiplier    byte[] UTF8 string e.g. "1.3"
+                            // MaxNumBytes      long
+                            // Status           byte
+                            //      1=Down
+                            //      2=Up
+                            //      3=Questionable
+                            //      4=Migrating
+
+                            int numObjects = IPAddress.NetworkToHostOrder(reader.ReadInt32());
+                            long totalDataBytes = IPAddress.NetworkToHostOrder(reader.ReadInt64());
+                            long latestRAMBytes = IPAddress.NetworkToHostOrder(reader.ReadInt64());
+                            int ramMultiplierLen = IPAddress.NetworkToHostOrder(reader.ReadInt32());
+                            byte[] ramMultiplierData = new byte[ramMultiplierLen];
+                            if (reader.Read(ramMultiplierData, 
+                                    0, ramMultiplierLen) != ramMultiplierLen)
+                            {
+                                Console.WriteLine("Invalid GetStats RAMMultiplier for {0}", 
+                                    node.EndPoint);
+                                allSucceeded = false;
+                                continue;
+                            }
+                            string ramMultiplier = Encoding.UTF8.GetString(ramMultiplierData);
+                            long maxNumBytes = IPAddress.NetworkToHostOrder(reader.ReadInt64());
+                            byte status = reader.ReadByte();
+
+                            Console.WriteLine("{0}:", node.EndPoint);
+                            Console.WriteLine(
+                                "\t{0} objects using {1} raw, {2} real bytes ({3}x) " + 
+                                "max {4}",
+                                numObjects, totalDataBytes, latestRAMBytes, ramMultiplier, 
+                                maxNumBytes);
+                            string statusString = "";
+                            switch (status)
+                            {
+                                case 0: statusString = "None"; break;
+                                case 1: statusString = "Down"; break;
+                                case 2: statusString = "Up"; break;
+                                case 3: statusString = "Questionable"; break;
+                                case 4: statusString = "Migrating"; break;
+                                default: statusString = status.ToString(); break;
+                            }
+                            Console.WriteLine("\tStatus: {0}", statusString);
+                            Console.WriteLine();
+                        }
+                    }
+                }
+            }
+
+            return allSucceeded;
         }
 
         public bool GetObject(string key, string expectedValue)
@@ -612,8 +698,62 @@ namespace LoopCacheConsole
 
         public bool TestThreads()
         {
-            // TODO - Spawn a bunch of threads and stress-test the server
+            // Spawn a bunch of threads and stress-test the server
+
+            int numThreads = 10;
+
+            List<Thread> threads = new List<Thread>();
+
+            for (int i = 0; i < numThreads; i++)
+            {
+                Thread t = new Thread(new ThreadStart(StressTestThread));
+                t.Start();
+                threads.Add(t);
+                Thread.Sleep(5);
+            }
+
+            for (int i = 0; i < numThreads; i++)
+            {
+                threads[i].Join();
+            }
+
             return true;
+        }
+
+        private void StressTestThread()
+        {
+            try
+            {
+                int numObjects = 1000;
+                Random r = new Random();
+                List<int> keys = new List<int>();
+                string format = "This is object {0}";
+
+                // Put a bunch of objects
+                for (int i = 0; i < numObjects; i++)
+                {
+                    int randomNumber = r.Next();
+                    keys.Add(randomNumber);
+                    PutObject(randomNumber.ToString(), 
+                        string.Format(format, randomNumber));
+                }
+
+                /*
+                // Get and then Delete every 5th object
+                for (int i = 0; i < numObjects; i++)
+                {
+                    if (i % 5 == 0)
+                    {
+                        GetObject(keys[i].ToString(), string.Format(format, keys[i]));
+                        DeleteObject(keys[i].ToString());
+                    }
+                }
+                 * */
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("StressTestThread failed: {0}", ex.Message);
+            }
         }
 
         /// <summary>

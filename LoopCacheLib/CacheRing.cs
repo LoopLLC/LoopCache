@@ -520,7 +520,7 @@ namespace LoopCacheLib
         /// <remarks>
         /// It no longer owns its objects and is not part of the cache ring.
         /// </remarks>
-        Migrating
+        Migrating = 4
     }
 
     /// <summary>A single real node in the ring</summary>

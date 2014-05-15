@@ -167,6 +167,9 @@ namespace LoopCacheLib
 
             listener.Start();
 
+            // Start the background thread that monitors RAM usage
+            new Thread(new ThreadStart(MonitorRAM)).Start();
+
             try
             {
                 while (this.shouldRun)
@@ -401,10 +404,14 @@ namespace LoopCacheLib
             }
         }
 
-        /// <summary>A request for the node's current configuration</summary>
-        /// <remarks>This method returns all node locations, which makes it 
+        /// <summary>
+        /// A request for the node's current configuration
+        /// </summary>
+        /// <remarks>
+        /// This method returns all node locations, which makes it 
         /// appropriate for clients that can't calculate the ring.  The data
-        /// size can be somewhat large for a large cluster.</remarks>
+        /// size can be somewhat large for a large cluster.
+        /// </remarks>
         public CacheMessage GetConfig(byte[] data)
         {
             CacheMessage response = new CacheMessage();
@@ -801,12 +808,53 @@ namespace LoopCacheLib
             }
         }
 
-        /// <summary>A request for node statistics</summary>
+        /// <summary>
+        /// A request for node statistics
+        /// </summary>
         public CacheMessage GetStats(byte[] data)
         {
             CacheMessage response = new CacheMessage(CacheResponseTypes.Accepted);
 
-            // TODO
+            UpdateRAMStats();
+
+            // Binary Response Format
+            //
+            // NumObjects       int
+            // TotalDataBytes   long
+            // LatestRAMBytes   long
+            // RAMMultiplierLen int
+            // RAMMultiplier    byte[] UTF8 string e.g. "1.3"
+            // MaxNumBytes      long
+            // Status           byte
+            //      1=Down
+            //      2=Up
+            //      3=Questionable
+            //      4=Migrating
+
+            MemoryStream ms = new MemoryStream();
+
+            using (BinaryWriter w = new BinaryWriter(ms))
+            {
+                w.Write(ToNetwork(this.dataByKey.Count));
+                w.Write(ToNetwork(this.totalDataBytes));
+                w.Write(ToNetwork(this.latestRAMBytes));
+
+                string ramm = string.Format("{0:0.00}", this.ramMultiplier);
+                byte[] rammb = GetBytes(ramm);
+                w.Write(ToNetwork(rammb.Length));
+                w.Write(rammb);
+
+                long maxNumBytes =
+                    this.localDataNode == null ? (long)0 : this.localDataNode.MaxNumBytes;
+                w.Write(ToNetwork(maxNumBytes));
+
+                byte status =
+                    this.localDataNode == null ? (byte)0 : (byte)this.localDataNode.Status;
+                w.Write(status);
+
+                w.Flush();
+                response.Data = ms.ToArray();
+            }
 
             return response;
         }
@@ -1364,8 +1412,13 @@ namespace LoopCacheLib
             {
                 inDataByKey = true;
 
+                int size = this.dataByKey[keyString].Length;
+
                 // Remove the object from the main list
                 this.dataByKey.Remove(keyString);
+
+                // Update the total number of raw bytes
+                this.totalDataBytes -= size;
             }
 
             DateTime keyPutTime;
@@ -1802,6 +1855,31 @@ namespace LoopCacheLib
             return StoppablePause(DateTime.UtcNow.AddSeconds(pauseSeconds), 500);
         }
 
+        private void UpdateRAMStats()
+        {
+            var currentProcess = System.Diagnostics.Process.GetCurrentProcess();
+            this.latestRAMBytes = currentProcess.WorkingSet64;
+
+            // Figure out a multiplier to apply to the number of actual 
+            // data bytes stored to get close to real RAM usage.
+
+            long total = this.totalDataBytes;
+            long latest = this.latestRAMBytes;
+
+            if (latest > 0 && total > 0)
+            {
+                // e.g. Latest is 1024 and total is 512, multiplier is 2.0
+                this.ramMultiplier = (double)((double)latest / (double)total);
+            }
+            else
+            {
+                this.ramMultiplier = 1.5;
+            }
+
+            if (this.ramMultiplier < 1) this.ramMultiplier = 1;
+            if (this.ramMultiplier > 3) this.ramMultiplier = 3;
+        }
+
         /// <summary>
         /// Check the RAM usage of the process every few seconds
         /// </summary>
@@ -1811,24 +1889,7 @@ namespace LoopCacheLib
             {
                 try
                 {
-                    var currentProcess = System.Diagnostics.Process.GetCurrentProcess();
-                    this.latestRAMBytes = currentProcess.WorkingSet64;
-
-                    // Figure out a multiplier to apply to the number of actual 
-                    // data bytes stored to get close to real RAM usage.
-
-                    long total = this.totalDataBytes;
-                    long latest = this.latestRAMBytes;
-
-                    if (latest > 0 && total > 0)
-                    {
-                        // e.g. Latest is 1024 and total is 512, multiplier is 2.0
-                        this.ramMultiplier = (double)((double)latest / (double)total);
-                    }
-                    else
-                    {
-                        this.ramMultiplier = 1.5;
-                    }
+                    UpdateRAMStats();
 
                     StoppablePause(5);
                 }
@@ -1844,14 +1905,14 @@ namespace LoopCacheLib
             return IPAddress.HostToNetworkOrder(i);
         }
 
-        private int FromNetwork(int i)
-        {
-            return IPAddress.NetworkToHostOrder(i);
-        }
-
         private long ToNetwork(long i)
         {
             return IPAddress.HostToNetworkOrder(i);
+        }
+
+        private int FromNetwork(int i)
+        {
+            return IPAddress.NetworkToHostOrder(i);
         }
 
         private long FromNetwork(long i)
