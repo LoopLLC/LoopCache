@@ -19,6 +19,12 @@ namespace LoopCacheLib
         public static string TraceFilePath { get; set; }
 
         /// <summary>
+        /// Performance counters
+        /// </summary>
+        public static Dictionary<string, PerformanceCounter> PerfCounters = 
+            new Dictionary<string, PerformanceCounter>();
+
+        /// <summary>
         /// Convert the string to an integer representation of a consistent md5 hash.
         /// </summary>
         /// <remarks>Collisions are possible, but they don't matter because we only 
@@ -48,6 +54,11 @@ namespace LoopCacheLib
         /// <returns></returns>
         public static CacheMessage SendRequest(CacheMessage request, IPEndPoint serverAddress)
         {
+            if (request.MessageLength > (1024 * 1024))
+            {
+                throw new Exception("Message exceeds max data length");
+            }
+
             using (TcpClient client = new TcpClient())
             {
                 client.Connect(serverAddress);
@@ -194,6 +205,77 @@ namespace LoopCacheLib
             throw new Exception("Unable to resolve address");
         }
 
+        /// <summary>
+        /// Name of the performance counter for puts per second.
+        /// </summary>
+        public const string PutsPerSecond = "Puts/sec";
+
+        /// <summary>
+        /// Name of the performance counter for gets per second.
+        /// </summary>
+        public const string GetsPerSecond = "Gets/sec";
+
+        /// <summary>
+        /// Name of the performance counter for deletes per second.
+        /// </summary>
+        public const string DeletesPerSecond = "Deletes/sec";
+
+
+        static string performanceCategory = "LoopCache";
+
+        static string[] performanceCounters = { 
+                PutsPerSecond, 
+                GetsPerSecond, 
+                DeletesPerSecond
+            };
+
+        /// <summary>
+        /// Initialize windows performance counters.
+        /// </summary>
+        public static void InitPerformanceCounters()
+        {
+            if (!PerformanceCounterCategory.Exists(performanceCategory))
+            {
+                CounterCreationDataCollection ccdc = new CounterCreationDataCollection();
+
+                foreach (string counter in performanceCounters)
+                {
+                    CounterCreationData ccd = new CounterCreationData();
+                    ccd.CounterHelp = counter;
+                    ccd.CounterName = counter;
+                    switch (counter)
+                    {
+                        case PutsPerSecond:
+                        case GetsPerSecond:
+                        case DeletesPerSecond:
+                            ccd.CounterType = PerformanceCounterType.RateOfCountsPerSecond32;
+                            break;
+                        default:
+                            ccd.CounterType = PerformanceCounterType.NumberOfItems64;
+                            break;
+                    }
+                    ccdc.Add(ccd);
+                }
+
+                // Create the category
+
+                PerformanceCounterCategory.Create(
+                    performanceCategory,
+                    performanceCategory,
+                    PerformanceCounterCategoryType.SingleInstance,
+                    ccdc);
+            }
+
+            foreach (string counter in performanceCounters)
+            {
+                PerfCounters[counter] = new PerformanceCounter(performanceCategory, counter, false);
+            }
+        }
+
+        public static void RemovePerformanceCounters()
+        {
+            PerformanceCounterCategory.Delete(performanceCategory);
+        }
     }
 }
 

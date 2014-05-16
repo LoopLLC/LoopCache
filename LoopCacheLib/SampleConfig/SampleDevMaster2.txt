@@ -4,7 +4,6 @@
 # See SampleConfig.txt for documentation
 
 Master		localhost:12345	
-Node		localhost:12346		24Mb
-Node		localhost:12347		2Kb
+Node		localhost:12346		2Mb
 Listener	localhost			127.0.0.1:12345		Yes
 Trace		On					C:\Loop\Logs\LoopCacheMaster.txt

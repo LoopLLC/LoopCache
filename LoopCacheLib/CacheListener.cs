@@ -266,6 +266,7 @@ namespace LoopCacheLib
                     else
                     {
                         CacheHelper.LogTrace("Successfully registered with master");
+                        CacheHelper.LogTrace("Config:\r\n{0}", this.config.Ring.GetTrace());
 
                         // Store a reference to the local data node
                         foreach (CacheNode node in this.config.Ring.Nodes.Values)
@@ -422,12 +423,17 @@ namespace LoopCacheLib
             return response;
         }
 
-        /// <summary>A report from a client that a node is not responding</summary>
+        /// <summary>
+        /// A report from a client that a node is not responding
+        /// </summary>
         public CacheMessage NodeDown(byte[] data)
         {
             if (!this.config.IsMaster)
                 throw new CacheMessageException(
                         CacheResponseTypes.NotMasterNode);
+
+            // TODO - If this is not the master, make sure the message is from the 
+            // master and start rebalancing.  
 
             CacheMessage response = new CacheMessage(CacheResponseTypes.Accepted);
 
@@ -474,11 +480,12 @@ namespace LoopCacheLib
         /// </summary>
         /// <remarks>
         /// This request comes from the administrative console, and it 
-        /// should be issued after the data node has been started.  
+        /// should be issued after the data node process/service has been started.  
         ///     HostLen         int
         ///     Host            byte[] UTF8 string
         ///     Port            int
         ///     MaxNumBytes     long
+        ///     Status          byte
         /// </remarks>
         public CacheMessage AddNode(byte[] data)
         {
@@ -493,7 +500,15 @@ namespace LoopCacheLib
             {
                 using (BinaryReader br = new BinaryReader(ms))
                 {
-                    newNode = DeserializeNode(br, false);
+                    try
+                    {
+                        newNode = DeserializeNode(br, false);
+                    }
+                    catch (Exception dex)
+                    {
+                        CacheHelper.LogError("Unable to deserialize", dex);
+                        throw new CacheMessageException(CacheResponseTypes.ReadDataError);
+                    }
                 }
             }
 
@@ -543,8 +558,13 @@ namespace LoopCacheLib
             {
                 CacheNode newNode = newNodeObj as CacheNode;
 
+                newNode.Status = CacheNodeStatus.Up;
+
                 // Add it to the ring
-                this.config.Ring.AddNode(newNode); 
+                this.config.Ring.AddNode(newNode);
+
+                CacheHelper.LogTrace("Added node {0}.  New config:\r\n{1}",
+                    newNode.IPEndPoint, this.config.Ring.GetTrace());
 
                 // Save edits to the config file so the node persists if we restart master
                 CacheConfig.Save(this.configFilePath, this.config);
@@ -584,6 +604,8 @@ namespace LoopCacheLib
             // Serialize the current node configuration
             byte[] config = SerializeNodes(this.config.Ring, false);
 
+            CacheHelper.LogTrace("About to push config to {0} nodes", endPointsToPush.Count);
+
             // Send messages to all nodes in parallel
             Parallel.ForEach(endPointsToPush, kvp =>
             {
@@ -593,6 +615,12 @@ namespace LoopCacheLib
                 {
                     // Mark the node as questionable.  It might be down.
                     this.config.Ring.SetNodeStatus(kvp.Key, CacheNodeStatus.Questionable);
+
+                    CacheHelper.LogTrace("Unable to push new config to node {0}", kvp.Value);
+                }
+                else
+                {
+                    CacheHelper.LogTrace("Pushed new config to node {0}", kvp.Value);
                 }
             });
         }
@@ -673,7 +701,7 @@ namespace LoopCacheLib
                 return new CacheMessage(CacheResponseTypes.UnknownNode);
             }
 
-            Thread t = new Thread(BackgroundAddNode);
+            Thread t = new Thread(BackgroundRemoveNode);
             t.Start(nodeToRemove);
 
             return response;
@@ -686,7 +714,10 @@ namespace LoopCacheLib
                 CacheNode nodeToRemove = nodeToRemoveObj as CacheNode;
 
                 this.config.Ring.RemoveNodeByName(nodeToRemove.GetName());
-            
+
+                CacheHelper.LogTrace("Removed node {0}.  New config:\r\n{1}",
+                    nodeToRemove.IPEndPoint, this.config.Ring.GetTrace());
+
                 // Save edits to the config file so the node persists if we restart master
                 CacheConfig.Save(this.configFilePath, this.config);
 
@@ -704,6 +735,10 @@ namespace LoopCacheLib
                         continue;
 
                     endPointsToPush.Add(kvp.Key, kvp.Value);
+
+                    // Also push to the removed node in case it's still 
+                    // listening so it knows it's been marked down.
+                    endPointsToPush.Add(nodeToRemove.GetName(), nodeToRemove.IPEndPoint);
                 }
 
                 PushConfigToNodes(endPointsToPush);
@@ -914,12 +949,20 @@ namespace LoopCacheLib
                     response.MessageType = 
                         (byte)CacheResponseTypes.ObjectMissing;
                 }
+
+                try
+                {
+                    CacheHelper.PerfCounters[CacheHelper.GetsPerSecond].Increment();
+                }
+                catch { }
+
                 return response;
             }
             finally
             {
                 this.dataLock.ExitReadLock();
             }
+
         }
 
         /// <summary>Serializes the config for clients and other nodes</summary>
@@ -937,6 +980,7 @@ namespace LoopCacheLib
                 //     Host            byte[] UTF8 string
                 //     Port            int
                 //     MaxNumBytes     long
+                //     Status          byte
                 //     NumLocations    int
                 //     [Locations]     ints
                 // ]
@@ -949,6 +993,7 @@ namespace LoopCacheLib
                     w.Write(hostNameData);
                     w.Write(ToNetwork(node.PortNumber));
                     w.Write(ToNetwork(node.MaxNumBytes));
+                    w.Write((byte)node.Status);
 
                     if (includeLocations)
                     {
@@ -1042,7 +1087,17 @@ namespace LoopCacheLib
 
                         // Create a request with the object to be migrated
                         CacheMessage request = new CacheMessage(CacheRequestTypes.PutObject);
-                        request.Data = dataToMigrate;
+                        using (MemoryStream ms = new MemoryStream())
+                        {
+                            BinaryWriter w = new BinaryWriter(ms);
+                            w.Write(IPAddress.HostToNetworkOrder(key.Length));
+                            w.Write(Encoding.UTF8.GetBytes(key));
+                            w.Write(IPAddress.HostToNetworkOrder(dataToMigrate.Length));
+                            w.Write(dataToMigrate);
+                            w.Flush();
+                            ms.Flush();
+                            request.Data = ms.ToArray();
+                        }
 
                         // Send the object to the node that owns it
                         var response = CacheHelper.SendRequest(request, owningNode.IPEndPoint);
@@ -1051,7 +1106,7 @@ namespace LoopCacheLib
                         if (responseType != CacheResponseTypes.ObjectOk)
                         {
                             CacheHelper.LogWarning(string.Format(
-                                "Tried to migrate {0} to {1}, got response {3}",
+                                "Tried to migrate {0} to {1}, got response {2}",
                                 key, owningNode.GetName(), responseType));
                         }
                     }
@@ -1222,6 +1277,12 @@ namespace LoopCacheLib
             {
                 this.dataLock.ExitWriteLock();
             }
+
+            try
+            {
+                CacheHelper.PerfCounters[CacheHelper.PutsPerSecond].Increment();
+            }
+            catch { }
 
             return response;
         }
@@ -1486,12 +1547,19 @@ namespace LoopCacheLib
                     response.MessageType = 
                         (byte)CacheResponseTypes.ObjectMissing;
 
+                try
+                {
+                    CacheHelper.PerfCounters[CacheHelper.DeletesPerSecond].Increment();
+                }
+                catch { }
+
                 return response;
             }
             finally
             {
                 this.dataLock.ExitWriteLock();
             }
+
         }
 
         /// <summary>
@@ -1506,6 +1574,28 @@ namespace LoopCacheLib
             response.MessageType = (byte)CacheResponseTypes.Accepted;
 
             this.config.Ring = DeserializeNodes(data, false);
+
+            CacheHelper.LogTrace("Got new config from master: \r\n{0}", 
+                this.config.Ring.GetTrace());
+
+            bool found = false;
+            foreach (var node in this.config.Ring.Nodes.Values)
+            {
+                if (IsThisNode(node))
+                {
+                    this.localDataNode = node;
+                    found = true;
+                }
+            }
+
+            if (!found)
+            {
+                // This node was taken down!
+                // TODO - The master should probably tell this data node explicitly so
+                // that we know for sure, and we can start rebalancing immediately.
+                this.localDataNode.Status = CacheNodeStatus.Migrating;
+                StartRebalance();
+            }
 
             return response;
         }
@@ -1628,6 +1718,11 @@ namespace LoopCacheLib
                 Array.Reverse(lenbuf);
             int dataLength = BitConverter.ToInt32(lenbuf, 0);
 
+            if (dataLength > (1024 * 1024))
+            {
+                throw new Exception("Exceeded max data length");
+            }
+
             byte[] data = new byte[dataLength];
             int bytesRead = 0;
             int chunkSize = 1;
@@ -1661,6 +1756,7 @@ namespace LoopCacheLib
             node.HostName = Encoding.UTF8.GetString(hostData);
             node.PortNumber = FromNetwork(reader.ReadInt32());
             node.MaxNumBytes = FromNetwork(reader.ReadInt64());
+            node.Status = (CacheNodeStatus)reader.ReadByte();
             if (hasLocations)
             {
                 int numLocations = FromNetwork(reader.ReadInt32());

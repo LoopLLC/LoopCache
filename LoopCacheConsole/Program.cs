@@ -97,6 +97,8 @@ namespace LoopCacheConsole
 				Console.WriteLine("About to start server with these settings: {0}", 
 						config.GetTrace());
 
+                CacheHelper.InitPerformanceCounters();
+
 				CacheListener listener = new CacheListener(args[1]);
 				var task = listener.StartAsync();
 				
@@ -222,11 +224,16 @@ namespace LoopCacheConsole
                     Console.WriteLine("All puts and deletes succeeded");
                 }
             }
-			else
-			{
-				Usage();
-				return;
-			}
+            else if (args.Length >= 1 && args[0].ToLower().Equals("-reperf"))
+            {
+                CacheHelper.RemovePerformanceCounters();
+                CacheHelper.InitPerformanceCounters();
+            }
+            else
+            {
+                Usage();
+                return;
+            }
 
 			Console.WriteLine("Main end");
 		}

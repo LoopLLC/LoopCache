@@ -163,35 +163,53 @@ namespace LoopCacheConsole
                 using (NetworkStream stream = client.GetStream())
                 {
                     // Write the request
-                    BinaryWriter w = new BinaryWriter(stream);
-                    w.Write(messageType);
-                    if (data == null)
-                    {
-                        w.Write(IPAddress.HostToNetworkOrder((int)0));
-                    }
-                    else
-                    {
-                        w.Write(IPAddress.HostToNetworkOrder(data.Length));
-                        w.Write(data);
-                    }
-                    w.Flush();
 
+                    try
+                    {
+                        BinaryWriter w = new BinaryWriter(stream);
+                        w.Write(messageType);
+                        if (data == null)
+                        {
+                            w.Write(IPAddress.HostToNetworkOrder((int)0));
+                        }
+                        else
+                        {
+                            w.Write(IPAddress.HostToNetworkOrder(data.Length));
+                            w.Write(data);
+                        }
+                        w.Flush();
+                    }
+                    catch (Exception wex)
+                    {
+                        Console.WriteLine("Unable to write: {0}", wex.Message);
+                        return null;
+                    }
+                    
                     // Read the response
-                    BinaryReader r = new BinaryReader(stream);
-                    byte responseType = r.ReadByte();
-                    int responseLength = IPAddress.NetworkToHostOrder(r.ReadInt32());
-                    if (responseLength > MaxLength)
+                    try
                     {
-                        throw new Exception(
-                            "SendMessage got a response that exceeded max length");
-                    }
-                    byte[] responseData = new byte[0];
-                    if (responseLength > 0)
-                    {
-                        responseData = r.ReadBytes(responseLength);
-                    }
 
-                    return new Tuple<byte, byte[]>(responseType, responseData);
+                        BinaryReader r = new BinaryReader(stream);
+                        byte responseType = r.ReadByte();
+                        int responseLength = IPAddress.NetworkToHostOrder(r.ReadInt32());
+                        if (responseLength > MaxLength)
+                        {
+                            throw new Exception(
+                                "SendMessage got a response that exceeded max length");
+                        }
+                        byte[] responseData = new byte[0];
+                        if (responseLength > 0)
+                        {
+                            responseData = r.ReadBytes(responseLength);
+                        }
+
+                        return new Tuple<byte, byte[]>(responseType, responseData);
+                    }
+                    catch (Exception rex)
+                    {
+                        Console.WriteLine("Unable to read: {0}", rex.Message);
+                        return null;
+                    }
                 }
             }
         }
@@ -225,7 +243,7 @@ namespace LoopCacheConsole
         private const byte Response_Accepted                 = 14;
         private const byte Response_DataNodeNotReady         = 15;
 
-        private const int MaxLength = 1024 * 1024 * 1024; // 1Gb
+        private const int MaxLength = 1024 * 1024; // 1Mb
 
         /// <summary>
         /// Test the server.
@@ -240,24 +258,36 @@ namespace LoopCacheConsole
         {
             if (GetConfig() &&
                 NodeDown() && 
-                AddNode("localhost:12347", 2048) &&
+                AddNode("localhost:12347", 104800) &&
                 Pause(1) && 
-                ChangeNode("localhost:12347", 4096) &&
-                Pause(1) &&
-                RemoveNode("localhost:12347") && 
+                ChangeNode("localhost:12347", 110000) &&
                 Pause(1) &&
                 GetStats() && 
                 PutObject("abc", "Hello, World!") && 
                 GetObject("abc", "Hello, World!") &&
                 DeleteObject("abc") && 
                 ChangeConfig() && 
+                TooBig() &&
                 TestThreads() && 
+                GetStats() &&
+                RemoveNode("localhost:12347") && 
+                Pause(1) && 
                 GetStats())
             {
                 return true;
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Returns false if an object that exceeds max size can be Put successfully
+        /// </summary>
+        /// <returns></returns>
+        bool TooBig()
+        {
+            byte[] data = new byte[1024 * 1024 + 1];
+            return !PutObject("TooBig", Encoding.UTF8.GetString(data));
         }
 
         /// <summary>
@@ -314,6 +344,7 @@ namespace LoopCacheConsole
             //     Host            byte[] UTF8 string
             //     Port            int
             //     MaxNumBytes     long
+            //     Status          byte
             //     NumLocations    int
             //     [Locations]     ints
             // ]
@@ -348,6 +379,8 @@ namespace LoopCacheConsole
                         Node node = new Node(hostname, port, maxNumBytes, ipep);
                         this.dataNodes.Add(string.Format("{0}:{1}", 
                             hostname, port), node);
+
+                        byte status = reader.ReadByte();
 
                         int numLocations = IPAddress.NetworkToHostOrder(reader.ReadInt32());
                         for (int i = 0; i < numLocations; i++)
@@ -403,6 +436,7 @@ namespace LoopCacheConsole
             //          Host            byte[] UTF8 string
             //          Port            int
             //          MaxNumBytes     long
+            //          Status          byte
 
             byte[] message = null;
             using (MemoryStream ms = new MemoryStream())
@@ -414,6 +448,7 @@ namespace LoopCacheConsole
                 w.Write(hostBytes);
                 w.Write(IPAddress.HostToNetworkOrder(port));
                 w.Write(IPAddress.HostToNetworkOrder(maxNumBytes));
+                w.Write((byte)0); // None
 
                 w.Flush();
                 ms.Flush();
@@ -700,14 +735,14 @@ namespace LoopCacheConsole
         {
             // Spawn a bunch of threads and stress-test the server
 
-            int numThreads = 10;
+            int numThreads = 100;
 
             List<Thread> threads = new List<Thread>();
 
             for (int i = 0; i < numThreads; i++)
             {
-                Thread t = new Thread(new ThreadStart(StressTestThread));
-                t.Start();
+                Thread t = new Thread(new ParameterizedThreadStart(StressTestThread));
+                t.Start(i);
                 threads.Add(t);
                 Thread.Sleep(5);
             }
@@ -720,35 +755,39 @@ namespace LoopCacheConsole
             return true;
         }
 
-        private void StressTestThread()
+        private void StressTestThread(object threadIndexObject)
         {
+            string ti = threadIndexObject.ToString();
+
             try
             {
-                int numObjects = 1000;
+                int numObjects = 100;
                 Random r = new Random();
                 List<int> keys = new List<int>();
-                string format = "This is object {0}";
+                string format = "This is object {0}:{1}";
+
+                Func<string, int, string> getKey = 
+                    (tidx, i) => { return string.Format("{0}:{1}", tidx, i); };
 
                 // Put a bunch of objects
                 for (int i = 0; i < numObjects; i++)
                 {
                     int randomNumber = r.Next();
                     keys.Add(randomNumber);
-                    PutObject(randomNumber.ToString(), 
-                        string.Format(format, randomNumber));
+                    PutObject(getKey(ti, randomNumber), 
+                        string.Format(format, ti, randomNumber));
                 }
 
-                /*
                 // Get and then Delete every 5th object
                 for (int i = 0; i < numObjects; i++)
                 {
                     if (i % 5 == 0)
                     {
-                        GetObject(keys[i].ToString(), string.Format(format, keys[i]));
-                        DeleteObject(keys[i].ToString());
+                        GetObject(getKey(ti, keys[i]), string.Format(format, ti, keys[i]));
+                        DeleteObject(getKey(ti, keys[i]));
                     }
                 }
-                 * */
+                
             }
             catch (Exception ex)
             {

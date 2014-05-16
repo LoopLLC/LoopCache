@@ -47,7 +47,9 @@ namespace LoopCacheService
         protected override void OnStart(string[] args)
         {
             string pathToConfigFile = ConfigurationManager.AppSettings["CacheConfigFile"];
-            
+
+            CacheHelper.InitPerformanceCounters();
+
             this.listener = new CacheListener(pathToConfigFile);
 
             var task = listener.StartAsync();

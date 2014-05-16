@@ -156,7 +156,6 @@ namespace LoopCacheLib
                 {
                     throw new Exception("Already added node " + nodeName);
                 }
-                node.Status = CacheNodeStatus.Down;
 
                 this.Nodes.Add(nodeName, node);
 
@@ -230,6 +229,8 @@ namespace LoopCacheLib
         /// should enter a write lock.</remarks>
         private void DetermineNodeLocations()
         {
+            CacheHelper.LogTrace("Determining new node locations");
+
             // Reset the locations
             this.SortedLocations = new SortedList<int, CacheNode>();
             
@@ -240,7 +241,19 @@ namespace LoopCacheLib
                 // Clear out all previous node locations
                 node.ResetLocations();
 
-                totalMemory += node.MaxNumBytes;
+                if (node.Status == CacheNodeStatus.Up ||
+                    node.Status == CacheNodeStatus.Questionable)
+                {
+                    totalMemory += node.MaxNumBytes;
+
+                    CacheHelper.LogTrace("Node {0} has max {1}, new total: {2}",
+                        node.IPEndPoint, node.MaxNumBytes, totalMemory);
+                }
+                else
+                {
+                    CacheHelper.LogTrace("Did not add memory for node {0} status {1}",
+                        node.IPEndPoint, node.Status);
+                }
             }
 
             // We'll create an average of 100 virtual locations per node
@@ -248,6 +261,20 @@ namespace LoopCacheLib
 
             foreach (var node in this.Nodes.Values)
             {
+                if (node.Status == CacheNodeStatus.Down ||
+                    node.Status == CacheNodeStatus.Migrating)
+                {
+                    // Do not include down or migrating nodes
+
+                    CacheHelper.LogTrace("Not creating locations for node {0} status {1}",
+                        node.IPEndPoint, node.Status);
+
+                    continue;
+                }
+
+                CacheHelper.LogTrace("Creating node locations for node {0} status {1}",
+                    node.IPEndPoint, node.Status);
+
                 // Figure out the percentage of memory that this node has
                 double percentage = (double)node.MaxNumBytes/(double)totalMemory;
 

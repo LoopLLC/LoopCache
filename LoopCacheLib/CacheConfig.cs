@@ -157,6 +157,7 @@ namespace LoopCacheLib
                     if (line.StartsWith("node"))
                     {
                         CacheNode node = ParseNodeLine(line);
+                        node.Status = CacheNodeStatus.Up;
                         ring.AddNode(node);
                         configLine.IsNodeLine = true;
                     }
@@ -280,7 +281,11 @@ namespace LoopCacheLib
                                 GetFriendlyFileSize(node.MaxNumBytes));
                             newLineNum++;
                             newLines.Add(newLineNum, new ConfigLine(nodeStr, true));
+
+                            CacheHelper.LogTrace("Added new node line: {0}", nodeStr);
                         }
+
+                        wroteNewNodes = true;
                     }
 
                     // Ignore all the old node lines
@@ -289,6 +294,8 @@ namespace LoopCacheLib
                 {
                     newLineNum++;
                     newLines.Add(newLineNum, oldLine);
+
+                    CacheHelper.LogTrace("Added non node line: {0}", oldLine.Line);
                 }
             }
 
@@ -506,7 +513,7 @@ namespace LoopCacheLib
         public ConfigLine(string line, bool isNodeLine)
         {
             this.Line = line;
-            this.IsNodeLine = IsNodeLine;
+            this.IsNodeLine = isNodeLine;
         }
     }
 }

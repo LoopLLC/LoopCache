@@ -216,6 +216,7 @@ The number in parantheses is the preceding byte for the message.
                 Host                byte[] UTF8 string
                 Port                int
                 MaxNumBytes         int
+				Status				byte
                 NumLocations        int
                 [Locations]         ints
             ]
@@ -250,23 +251,23 @@ Don't trust anything from here on down, they're just notes.
 
 - GetObject 
     - I have it
-    - I don’t have it but I should
-    - I’m not responsible for this key.  Get config from master.
-        - If I now think I’m responsible, start over.
-        - If I’m still not responsible, send the new config to the client.
+    - I donâ€™t have it but I should
+    - Iâ€™m not responsible for this key.  Get config from master.
+        - If I now think Iâ€™m responsible, start over.
+        - If Iâ€™m still not responsible, send the new config to the client.
 -PutObject 
-    - I’m responsible, Ok
+    - Iâ€™m responsible, Ok
     - Do I have room for this object?  If yes, Ok
     - If no, push the oldest objects out until there is room.
-        - I’m not responsible.  Get config from master.
-        - If I’m now responsible, Ok
-        - If I’m still not responsible, send the new config to the client.
+        - Iâ€™m not responsible.  Get config from master.
+        - If Iâ€™m now responsible, Ok
+        - If Iâ€™m still not responsible, send the new config to the client.
 - DeleteObject
     - I have it.  Ok.    
-    - I don’t have it but should.  No-op.
-    - I shouldn’t have it.  Get config from master and send to client.
+    - I donâ€™t have it but should.  No-op.
+    - I shouldnâ€™t have it.  Get config from master and send to client.
 - ChangeConfig (push from master)
-    - Start migrating  (pushing) objects that shouldn’t be here
+    - Start migrating  (pushing) objects that shouldnâ€™t be here
 - GetStats
 
 ##    Node Configuration 

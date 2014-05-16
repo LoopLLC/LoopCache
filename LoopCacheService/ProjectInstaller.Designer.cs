@@ -41,6 +41,7 @@
             this.serviceInstaller1.Description = "Loop Cache is a distributed memory cache similar to memcached";
             this.serviceInstaller1.DisplayName = "Loop Cache";
             this.serviceInstaller1.ServiceName = "LoopCache";
+            this.serviceInstaller1.AfterInstall += new System.Configuration.Install.InstallEventHandler(this.serviceInstaller1_AfterInstall);
             // 
             // ProjectInstaller
             // 
