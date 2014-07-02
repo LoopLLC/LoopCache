@@ -127,6 +127,11 @@ namespace LoopCacheLib
             {
                 try
                 {
+                    FileInfo fi = new FileInfo(TraceFilePath);
+
+                    if (!fi.Exists && !fi.Directory.Exists)
+                        fi.Directory.Create();
+
                     using (StreamWriter sw = new StreamWriter(TraceFilePath, true))
                     {
                         sw.WriteLine(DateTime.Now.ToString("yyyyMMdd HH':'mm':'ss'.'fff") + 

@@ -116,7 +116,11 @@ namespace LoopCacheLib
             sb.AppendFormat("ListenerPortNumber: {0}\r\n", this.ListenerPortNumber);
             sb.AppendFormat("MasterHostName: {0}\r\n", this.MasterHostName);
             sb.AppendFormat("MasterPortnumber: {0}\r\n", this.MasterPortNumber);
-            sb.AppendFormat("Ring: {0}\r\n", this.Ring.GetTrace());
+
+            if (this.Ring == null)
+                sb.Append("Ring: null\r\n");
+            else
+                sb.AppendFormat("Ring: {0}\r\n", this.Ring.GetTrace());
 
             return sb.ToString();
         }

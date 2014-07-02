@@ -108,10 +108,20 @@ namespace LoopCacheLib
         /// <summary>
         /// Create a new listener based on a config file
         /// </summary>
-        public CacheListener(string configFilePath) : this()
+        /// <param name="configFilePath"></param>
+        public CacheListener(string configFilePath)
+            : this(CacheConfig.Load(configFilePath))
         {
             this.configFilePath = configFilePath;
-            this.config = CacheConfig.Load(configFilePath);
+        }
+
+        /// <summary>
+        /// Create a new listener based on a provided config
+        /// </summary>
+        public CacheListener(CacheConfig config) : this()
+        {
+            this.config = config;
+
             if (this.config.IsTraceEnabled) 
             {
                 CacheHelper.TraceFilePath = config.TraceFilePath;
@@ -2025,8 +2035,5 @@ namespace LoopCacheLib
         {
             return Encoding.UTF8.GetString(b);
         }
-
     }
-
 }
-

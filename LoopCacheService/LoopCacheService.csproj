@@ -64,18 +64,18 @@
     <None Include="App.config" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\LoopCacheLib\LoopCacheLib.csproj">
-      <Project>{b224109b-6221-4876-a016-a33482b80b17}</Project>
-      <Name>LoopCacheLib</Name>
-    </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
     <EmbeddedResource Include="ListenerService.resx">
       <DependentUpon>ListenerService.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="ProjectInstaller.resx">
       <DependentUpon>ProjectInstaller.cs</DependentUpon>
     </EmbeddedResource>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LoopCacheLib\LoopCacheLib.csproj">
+      <Project>{b224109b-6221-4876-a016-a33482b80b17}</Project>
+      <Name>LoopCacheLib</Name>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

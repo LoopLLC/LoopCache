@@ -252,6 +252,18 @@ namespace LoopCacheConsole
                 CacheHelper.RemovePerformanceCounters();
                 CacheHelper.InitPerformanceCounters();
             }
+            else if (args.Length >= 1 && args[0].ToLower().Equals("-automaster"))
+            {
+                AutoConfig(true);
+                Console.WriteLine("Master 12345 Listening");
+                Console.ReadLine();
+            }
+            else if (args.Length >= 1 && args[0].ToLower().Equals("-autonode"))
+            {
+                AutoConfig(false);
+                Console.WriteLine("Node 12346 Listening");
+                Console.ReadLine();
+            }
             else
             {
                 Usage();
@@ -260,6 +272,70 @@ namespace LoopCacheConsole
 
 			Console.WriteLine("Main end");
 		}
+
+        static void AutoConfig(bool isMaster)
+        {
+            string localHost = "localhost";
+
+            IPEndPoint ipep;
+            CacheConfig.TryParseIPEndPoint("127.0.0.1:12345", out ipep);
+
+            CacheConfig config = new CacheConfig();
+            //
+            //  Master
+            //  
+            config.MasterHostName = localHost;
+            config.MasterPortNumber = 12345;
+
+
+            if (isMaster)
+            {
+                config.Ring = new CacheRing();
+                //
+                //  Node
+                //
+                CacheNode node = new CacheNode();
+                //node.HostName = localHost;
+                //node.IPEndPoint = ipep;
+                //node.MaxNumBytes = 104800;
+                //node.PortNumber = 12345;
+                //node.Status = CacheNodeStatus.Up;
+
+                //config.Ring.AddNode(node);
+
+                node.HostName = localHost;
+                node.IPEndPoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 12346);
+                node.MaxNumBytes = 104800;
+                node.PortNumber = 12346;
+                node.Status = CacheNodeStatus.Up;
+
+                config.Ring.AddNode(node);
+                //
+                //  Listener
+                //
+                config.ListenerHostName = localHost;
+                config.ListenerIP = "127.0.0.1";
+                config.ListenerPortNumber = 12345;
+                config.IsMaster = true;
+            }
+            else
+            {
+                config.ListenerHostName = localHost;
+                config.ListenerIP = "127.0.0.1";
+                config.ListenerPortNumber = 12346;
+                config.IsMaster = false;
+            }
+
+            //
+            //  Trace
+            //
+            config.IsTraceEnabled = false;
+            //config.TraceFilePath = "D:\\\\CacheSupport\\Logs\\LoopCacheDataMaster.txt";
+
+            CacheListener listener = new CacheListener(config);
+            var task = listener.StartAsync();
+
+        }
 
 		static void Usage()
 		{
