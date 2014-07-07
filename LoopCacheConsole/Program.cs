@@ -254,14 +254,15 @@ namespace LoopCacheConsole
             }
             else if (args.Length >= 1 && args[0].ToLower().Equals("-automaster"))
             {
-                AutoConfig(true);
+                AutoConfigMaster();
                 Console.WriteLine("Master 12345 Listening");
                 Console.ReadLine();
             }
             else if (args.Length >= 1 && args[0].ToLower().Equals("-autonode"))
             {
-                AutoConfig(false);
-                Console.WriteLine("Node 12346 Listening");
+                int portNumber = int.Parse(args[1]);
+                AutoConfigNode(portNumber);
+                Console.WriteLine("Node " + portNumber + " Listening");
                 Console.ReadLine();
             }
             else
@@ -273,12 +274,9 @@ namespace LoopCacheConsole
 			Console.WriteLine("Main end");
 		}
 
-        static void AutoConfig(bool isMaster)
+        static void AutoConfigMaster()
         {
             string localHost = "localhost";
-
-            IPEndPoint ipep;
-            CacheConfig.TryParseIPEndPoint("127.0.0.1:12345", out ipep);
 
             CacheConfig config = new CacheConfig();
             //
@@ -286,56 +284,65 @@ namespace LoopCacheConsole
             //  
             config.MasterHostName = localHost;
             config.MasterPortNumber = 12345;
-
-
-            if (isMaster)
-            {
-                config.Ring = new CacheRing();
-                //
-                //  Node
-                //
-                CacheNode node = new CacheNode();
-                //node.HostName = localHost;
-                //node.IPEndPoint = ipep;
-                //node.MaxNumBytes = 104800;
-                //node.PortNumber = 12345;
-                //node.Status = CacheNodeStatus.Up;
-
-                //config.Ring.AddNode(node);
-
-                node.HostName = localHost;
-                node.IPEndPoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 12346);
-                node.MaxNumBytes = 104800;
-                node.PortNumber = 12346;
-                node.Status = CacheNodeStatus.Up;
-
-                config.Ring.AddNode(node);
-                //
-                //  Listener
-                //
-                config.ListenerHostName = localHost;
-                config.ListenerIP = "127.0.0.1";
-                config.ListenerPortNumber = 12345;
-                config.IsMaster = true;
-            }
-            else
-            {
-                config.ListenerHostName = localHost;
-                config.ListenerIP = "127.0.0.1";
-                config.ListenerPortNumber = 12346;
-                config.IsMaster = false;
-            }
-
+            config.Ring = new CacheRing();
+            //
+            //  Nodes
+            //
+            //AutoConfigMasterNode(config, 12346, 0.5);
+            //AutoConfigMasterNode(config, 12347, 1.0);
+            //AutoConfigMasterNode(config, 12348, 0.9);
+            //AutoConfigMasterNode(config, 12349, 0.2);
+            //
+            //  Listener
+            //
+            config.ListenerHostName = localHost;
+            config.ListenerIP = "127.0.0.1";
+            config.ListenerPortNumber = 12345;
+            config.IsMaster = true;
             //
             //  Trace
             //
-            config.IsTraceEnabled = false;
-            //config.TraceFilePath = "D:\\\\CacheSupport\\Logs\\LoopCacheDataMaster.txt";
+            config.IsTraceEnabled = true;
+            config.TraceFilePath = "D:\\CacheSupport\\Logs\\Master_12345.txt";
 
             CacheListener listener = new CacheListener(config);
             var task = listener.StartAsync();
-
         }
+
+        static void AutoConfigNode(int portNumber)
+        {
+            string localHost = "localhost";
+
+            CacheConfig config = new CacheConfig();
+            //
+            //  Master
+            //  
+            config.MasterHostName = localHost;
+            config.MasterPortNumber = 12345;
+            config.ListenerHostName = localHost;
+            config.ListenerIP = "127.0.0.1";
+            config.ListenerPortNumber = portNumber;
+            config.IsMaster = false;
+            //
+            //  Trace
+            //
+            config.IsTraceEnabled = true;
+            config.TraceFilePath = string.Format( "D:\\CacheSupport\\Logs\\Node_{0}.txt", portNumber);
+
+            CacheListener listener = new CacheListener(config);
+            var task = listener.StartAsync();
+        }
+
+        //static void AutoConfigMasterNode(CacheConfig config, int portNumber, double memModifier)
+        //{
+        //    CacheNode node = new CacheNode();
+        //    node.HostName = "localhost";
+        //    node.IPEndPoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), portNumber);
+        //    node.MaxNumBytes = 
+        //    node.PortNumber = portNumber;
+        //    node.Status = CacheNodeStatus.Up;
+        //    config.Ring.AddNode(node);
+        //}
 
 		static void Usage()
 		{

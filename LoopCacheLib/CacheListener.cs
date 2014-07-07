@@ -150,6 +150,14 @@ namespace LoopCacheLib
                         "Listener misconfigured as master");
                 }
             }
+
+            if (this.configFilePath == null)
+            {
+                string configFile = string.Format("CacheConfig_{0}.txt", this.config.ListenerPortNumber);
+                string path = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                string dir = System.IO.Path.GetDirectoryName(path);
+                this.configFilePath = Path.Combine(dir, configFile);
+            }
         }
 
         /// <summary>
@@ -259,7 +267,7 @@ namespace LoopCacheLib
                         numRegisterTries++;
 
                         CacheHelper.LogInfo(string.Format(
-                            "Unable to register  after {0} tries", 
+                            "Unable to register  after {0} tries",
                             numRegisterTries));
 
                         int pauseSeconds = 1; 
@@ -541,11 +549,28 @@ namespace LoopCacheLib
                 CacheHelper.LogWarning("Unexpected null response from added data node");
                 throw new CacheMessageException(CacheResponseTypes.InternalServerError);
             }
-            
-            if (pingResponse.MessageType != (byte)CacheResponseTypes.DataNodeNotReady)
+
+            byte[] okResponses = new byte[]{
+                (byte)CacheResponseTypes.DataNodeNotReady,
+                (byte)CacheResponseTypes.Accepted
+            };
+
+            byte messageType = pingResponse.MessageType;
+
+            if (messageType != okResponses[0] && messageType != okResponses[1])
             {
-                CacheHelper.LogWarning(string.Format(
-                    "Unexpected response {0} from added data node", pingResponse.MessageType));
+                string accepted = CacheResponseTypes.Accepted.ToString();
+                string datanodenotready = CacheResponseTypes.DataNodeNotReady.ToString();
+                string received = ((CacheResponseTypes)pingResponse.MessageType).ToString();
+
+                CacheHelper.LogWarning(
+                    string.Format( 
+                        "Unexpected response {0} or {1} but received {2} from added data node",
+                        accepted,
+                        datanodenotready,
+                        received
+                    )
+                );
                 throw new CacheMessageException(CacheResponseTypes.InternalServerError); 
             }
 
@@ -744,11 +769,13 @@ namespace LoopCacheLib
                     if (IsThisNodeEndPoint(kvp.Value))
                         continue;
 
-                    endPointsToPush.Add(kvp.Key, kvp.Value);
+                    if (!endPointsToPush.ContainsKey(kvp.Key))
+                        endPointsToPush.Add(kvp.Key, kvp.Value);
 
                     // Also push to the removed node in case it's still 
                     // listening so it knows it's been marked down.
-                    endPointsToPush.Add(nodeToRemove.GetName(), nodeToRemove.IPEndPoint);
+                    if (!endPointsToPush.ContainsKey(nodeToRemove.GetName()))
+                        endPointsToPush.Add(nodeToRemove.GetName(), nodeToRemove.IPEndPoint);
                 }
 
                 PushConfigToNodes(endPointsToPush);
@@ -1673,8 +1700,7 @@ namespace LoopCacheLib
         /// <param name="responseType"></param>
         /// <param name="responseData"></param>
         /// <returns></returns>
-        async Task WriteResponse(NetworkStream n, 
-            byte responseType, byte[] responseData)
+        async Task WriteResponse(NetworkStream n, byte responseType, byte[] responseData)
         {
             await Task.Yield();
 
