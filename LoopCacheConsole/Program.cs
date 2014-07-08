@@ -81,7 +81,30 @@ namespace LoopCacheConsole
 				{
 					Console.WriteLine("Client test failed!");
 				}
-			}
+            }
+            else if (args.Length >= 1 && args[0].ToLower().Equals("-test3"))
+            {
+                if (args.Length != 2)
+                {
+                    Console.WriteLine("Missing master hostname:port.  See usage:");
+                    Usage();
+                    return;
+                }
+
+                // It's cheating to use anything from LoopCacheLib for client tests.
+                // Developers can use this code as an example of how to use the API.
+                // LoopCacheLib will *not* be referenced by client applications.
+
+                CacheClient client = new CacheClient(args[1]);
+                if (client.TestThreeNodes())
+                {
+                    Console.WriteLine("All client tests passed");
+                }
+                else
+                {
+                    Console.WriteLine("Client test failed!");
+                }
+            }
 			else if (args.Length >= 1 && args[0].ToLower().Equals("-server"))
 			{
 				if (args.Length != 2)

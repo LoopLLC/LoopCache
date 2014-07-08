@@ -280,6 +280,25 @@ namespace LoopCacheConsole
             return false;
         }
 
+        public bool TestThreeNodes()
+        {
+            if (
+               AddNode("localhost:12347", 104800) &&
+               Pause(1) &&
+               AddNode("localhost:12348", 104800) &&
+               Pause(1) &&
+               PutObject("abc", "Hello, World!") &&
+               GetObject("abc", "Hello, World!") &&
+               PutObject("def", "Hello, World!") &&
+               GetObject("def", "Hello, World!") &&
+               PutObject("ghi", "Hello, World!") &&
+               GetObject("ghi", "Hello, World!") &&
+                GetStats()
+                )
+                return true;
+            else return false;
+        }
+
         /// <summary>
         /// Returns false if an object that exceeds max size can be Put successfully
         /// </summary>
