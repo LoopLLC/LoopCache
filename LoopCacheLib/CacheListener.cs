@@ -109,8 +109,7 @@ namespace LoopCacheLib
         /// Create a new listener based on a config file
         /// </summary>
         /// <param name="configFilePath"></param>
-        public CacheListener(string configFilePath)
-            : this(CacheConfig.Load(configFilePath))
+        public CacheListener(string configFilePath) : this(CacheConfig.Load(configFilePath))
         {
             this.configFilePath = configFilePath;
         }
@@ -520,7 +519,7 @@ namespace LoopCacheLib
                 {
                     try
                     {
-                        newNode = DeserializeNode(br, false);
+                        newNode = DeserializeNode(br);
                     }
                     catch (Exception dex)
                     {
@@ -816,7 +815,7 @@ namespace LoopCacheLib
             {
                 using (BinaryReader br = new BinaryReader(ms))
                 {
-                    changedNode = DeserializeNode(br, false);
+                    changedNode = DeserializeNode(br);
                 }
             }
 
@@ -1018,8 +1017,10 @@ namespace LoopCacheLib
                 //     Port            int
                 //     MaxNumBytes     long
                 //     Status          byte
-                //     NumLocations    int
-                //     [Locations]     ints
+                //     ParseLocations  boolean
+                //     if (ParseLocations)
+                //          NumLocations    int
+                //          [Locations]     ints
                 // ]
 
                 w.Write(ToNetwork(ring.Nodes.Count));
@@ -1031,6 +1032,7 @@ namespace LoopCacheLib
                     w.Write(ToNetwork(node.PortNumber));
                     w.Write(ToNetwork(node.MaxNumBytes));
                     w.Write((byte)node.Status);
+                    w.Write(Convert.ToByte(includeLocations));
 
                     if (includeLocations)
                     {
@@ -1039,10 +1041,6 @@ namespace LoopCacheLib
                         {
                             w.Write(ToNetwork(location));
                         }
-                    }
-                    else
-                    {
-                        w.Write(ToNetwork((int)0));
                     }
                 }
                 w.Flush();
@@ -1610,7 +1608,7 @@ namespace LoopCacheLib
             CacheMessage response = new CacheMessage();
             response.MessageType = (byte)CacheResponseTypes.Accepted;
 
-            this.config.Ring = DeserializeNodes(data, false);
+            this.config.Ring = DeserializeNodes(data);
 
             CacheHelper.LogTrace("Got new config from master: \r\n{0}", 
                 this.config.Ring.GetTrace());
@@ -1780,7 +1778,7 @@ namespace LoopCacheLib
             return m;
         }
 
-        private CacheNode DeserializeNode(BinaryReader reader, bool hasLocations)
+        private CacheNode DeserializeNode(BinaryReader reader)
         {
             CacheNode node = new CacheNode();
             int hostLen = FromNetwork(reader.ReadInt32());
@@ -1793,7 +1791,9 @@ namespace LoopCacheLib
             node.PortNumber = FromNetwork(reader.ReadInt32());
             node.MaxNumBytes = FromNetwork(reader.ReadInt64());
             node.Status = (CacheNodeStatus)reader.ReadByte();
-            if (hasLocations)
+            bool parseLocations = reader.ReadBoolean();
+
+            if (parseLocations)
             {
                 int numLocations = FromNetwork(reader.ReadInt32());
                 if (numLocations > 0)
@@ -1811,19 +1811,34 @@ namespace LoopCacheLib
         /// <summary>Deserialize nodes</summary>
         /// <remarks>If node locations are not pre-populated, this method
         /// will also determine node locations for the ring before returning</remarks>
-        private CacheRing DeserializeNodes(byte[] data, bool hasLocations)
+        private CacheRing DeserializeNodes(byte[] data)
         {
             CacheRing ring = new CacheRing();
+
+            bool hasLocations = false;
 
             // Deserialize the config
             using (MemoryStream ms = new MemoryStream(data))
             {
                 using (BinaryReader reader = new BinaryReader(ms))
                 {
+                    // NumNodes            int
+                    // [
+                    //     HostLen         int
+                    //     Host            byte[] UTF8 string
+                    //     Port            int
+                    //     MaxNumBytes     long
+                    //     Status          byte
+                    //     ParseLocations  boolean
+                    //     if (ParseLocations)
+                    //          NumLocations    int
+                    //          [Locations]     ints
+                    // ]
+
                     int numNodes = FromNetwork(reader.ReadInt32());
                     for (int n = 0; n < numNodes; n++)
                     {
-                        var node = DeserializeNode(reader, hasLocations);
+                        var node = DeserializeNode(reader);
                         if (node.Locations.Count == 0)
                         {
                             hasLocations = false;
@@ -1885,7 +1900,7 @@ namespace LoopCacheLib
             
                 if (response.MessageType == (byte)CacheResponseTypes.Configuration)
                 {
-                    CacheRing ring = DeserializeNodes(response.Data, true);
+                    CacheRing ring = DeserializeNodes(response.Data);
 
                     CacheHelper.LogTrace("Got the ring configuration from master");
 
