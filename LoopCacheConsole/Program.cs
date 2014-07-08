@@ -254,16 +254,47 @@ namespace LoopCacheConsole
             }
             else if (args.Length >= 1 && args[0].ToLower().Equals("-automaster"))
             {
-                AutoConfigMaster();
-                Console.WriteLine("Master 12345 Listening");
+                CacheConfig config = AutoConfigMaster();
+                Console.WriteLine("About to start server with these settings: {0}",
+                        config.GetTrace());
+
+                CacheHelper.InitPerformanceCounters();
+
+                CacheListener listener = new CacheListener(config);
+                var task = listener.StartAsync();
+
+                Console.WriteLine("Press Enter to stop");
                 Console.ReadLine();
+                listener.Stop();
+
+                Console.WriteLine("After Stop");
+
+                bool result = task.Result;
+
+                Console.WriteLine("Got result {0}", result);
             }
             else if (args.Length >= 1 && args[0].ToLower().Equals("-autonode"))
             {
                 int portNumber = int.Parse(args[1]);
-                AutoConfigNode(portNumber);
-                Console.WriteLine("Node " + portNumber + " Listening");
+
+                CacheConfig config = AutoConfigNode(portNumber);
+                Console.WriteLine("About to start server with these settings: {0}",
+                        config.GetTrace());
+
+                CacheHelper.InitPerformanceCounters();
+
+                CacheListener listener = new CacheListener(config);
+                var task = listener.StartAsync();
+
+                Console.WriteLine("Press Enter to stop");
                 Console.ReadLine();
+                listener.Stop();
+
+                Console.WriteLine("After Stop");
+
+                bool result = task.Result;
+
+                Console.WriteLine("Got result {0}", result);
             }
             else
             {
@@ -274,7 +305,7 @@ namespace LoopCacheConsole
 			Console.WriteLine("Main end");
 		}
 
-        static void AutoConfigMaster()
+        static CacheConfig AutoConfigMaster()
         {
             string localHost = "localhost";
 
@@ -285,13 +316,6 @@ namespace LoopCacheConsole
             config.MasterHostName = localHost;
             config.MasterPortNumber = 12345;
             config.Ring = new CacheRing();
-            //
-            //  Nodes
-            //
-            //AutoConfigMasterNode(config, 12346, 0.5);
-            //AutoConfigMasterNode(config, 12347, 1.0);
-            //AutoConfigMasterNode(config, 12348, 0.9);
-            //AutoConfigMasterNode(config, 12349, 0.2);
             //
             //  Listener
             //
@@ -305,11 +329,10 @@ namespace LoopCacheConsole
             config.IsTraceEnabled = true;
             config.TraceFilePath = "D:\\CacheSupport\\Logs\\Master_12345.txt";
 
-            CacheListener listener = new CacheListener(config);
-            var task = listener.StartAsync();
+            return config;
         }
 
-        static void AutoConfigNode(int portNumber)
+        static CacheConfig AutoConfigNode(int portNumber)
         {
             string localHost = "localhost";
 
@@ -329,8 +352,7 @@ namespace LoopCacheConsole
             config.IsTraceEnabled = true;
             config.TraceFilePath = string.Format( "D:\\CacheSupport\\Logs\\Node_{0}.txt", portNumber);
 
-            CacheListener listener = new CacheListener(config);
-            var task = listener.StartAsync();
+            return config;
         }
 
         //static void AutoConfigMasterNode(CacheConfig config, int portNumber, double memModifier)
