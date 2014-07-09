@@ -77,41 +77,41 @@ namespace LoopCacheLib
     public enum CacheRequestTypes : byte
     {
         /// <summary>A request for the node's current configuration</summary>
-        GetConfig            = 1,
+        GetConfig           = 1,
 
         /// <summary>A report from a client that a node is not responding</summary>
-        NodeDown             = 2,
+        NodeUnreachable     = 2,
 
         /// <summary>A request for the master node to add a data node and push the
         /// change out to all data nodes.</summary>
-        AddNode                  = 3,
+        AddNode             = 3,
 
         /// <summary>A request for the master node to remove a data node and push the
         /// change out to all data nodes.</summary>
-        RemoveNode               = 4,
+        RemoveNode          = 4,
 
         /// <summary>A request for the master node to make a change to a node and push the
         /// change out to all data nodes</summary>
-        ChangeNode               = 5,
+        ChangeNode          = 5,
 
         /// <summary>A request for node statistics</summary>
-        GetStats             = 6,
+        GetStats            = 6,
 
         /// <summary>A request from a client to a data node to retrieve a cached object
         /// </summary>
-        GetObject            = 7,
+        GetObject           = 7,
 
         /// <summary>A request from a client to a data node to store an object in the cache.
         /// </summary>
-        PutObject            = 8,
+        PutObject           = 8,
 
         /// <summary>A request from a client to a data node to remove an object from the cache
         /// </summary>
-        DeleteObject         = 9,
+        DeleteObject        = 9,
 
         /// <summary>A request from the master to a data node to change its configuration.
         /// </summary>
-        ChangeConfig         = 10, 
+        ChangeConfig        = 10, 
 
         /// <summary>A request from a data node to the master node to say it's alive and to 
         /// get the configuration.</summary>
@@ -120,7 +120,7 @@ namespace LoopCacheLib
         /// <summary>
         /// A simple request that's just checking to see if the node is listening
         /// </summary>
-        Ping = 12
+        Ping                = 12
     }
 
     /// <summary>Return codes for the API calls</summary>

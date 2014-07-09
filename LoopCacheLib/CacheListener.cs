@@ -383,7 +383,7 @@ namespace LoopCacheLib
                 switch (t)
                 {
                     case CacheRequestTypes.GetConfig:        return GetConfig(data);
-                    case CacheRequestTypes.NodeDown:         return NodeDown(data);
+                    case CacheRequestTypes.NodeUnreachable:  return NodeUnreachable(data);
                     case CacheRequestTypes.AddNode:          return AddNode(data);
                     case CacheRequestTypes.RemoveNode:       return RemoveNode(data);
                     case CacheRequestTypes.ChangeNode:       return ChangeNode(data);
@@ -443,14 +443,10 @@ namespace LoopCacheLib
         /// <summary>
         /// A report from a client that a node is not responding
         /// </summary>
-        public CacheMessage NodeDown(byte[] data)
+        public CacheMessage NodeUnreachable(byte[] data)
         {
             if (!this.config.IsMaster)
-                throw new CacheMessageException(
-                        CacheResponseTypes.NotMasterNode);
-
-            // TODO - If this is not the master, make sure the message is from the 
-            // master and start rebalancing.  
+                throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
 
             CacheMessage response = new CacheMessage(CacheResponseTypes.Accepted);
 
@@ -478,14 +474,26 @@ namespace LoopCacheLib
                 }
             }
 
+            CacheNode node = null;
             if (nodeName != null)
             {
-                CacheNode node = this.config.Ring.FindNodeByName(nodeName);
+                node = this.config.Ring.FindNodeByName(nodeName);
+
                 if (node == null)
-                {
                     return new CacheMessage(CacheResponseTypes.UnknownNode);
+                //
+                //  Ping the node, 
+                //
+                var pingResponse = this.PingNode(node);
+                //
+                //  if it doesnt respond set it to hard down and remove it from the ring.
+                //
+                if (pingResponse == null)
+                {
+                    this.config.Ring.SetNodeStatus(node, CacheNodeStatus.Down);
+                    Thread t = new Thread(BackgroundRemoveNode);
+                    t.Start(node);
                 }
-                this.config.Ring.SetNodeStatus(node, CacheNodeStatus.Questionable);
             }
 
             return response;
@@ -538,11 +546,7 @@ namespace LoopCacheLib
             // Make sure DNS resolves
             newNode.IPEndPoint = CacheHelper.GetIPEndPoint(newNode.HostName, newNode.PortNumber);
 
-            // Do a quick check to see if the node is up and trying to register with the master.
-            CacheMessage ping = new CacheMessage(CacheRequestTypes.Ping);
-            CacheMessage pingResponse = CacheHelper.SendRequest(ping, 
-                    CacheHelper.GetIPEndPoint(newNode.HostName, newNode.PortNumber));
-
+            var pingResponse = this.PingNode(newNode);
             if (pingResponse == null)
             {
                 CacheHelper.LogWarning("Unexpected null response from added data node");
@@ -586,6 +590,23 @@ namespace LoopCacheLib
             return response;
         }
 
+        private CacheMessage PingNode(CacheNode node)
+        {
+            IPEndPoint ipep = CacheHelper.GetIPEndPoint(node.HostName, node.PortNumber);
+            CacheMessage ping = new CacheMessage(CacheRequestTypes.Ping);
+            CacheMessage response = null;
+
+            try
+            {
+                response = CacheHelper.SendRequest(ping, ipep);
+            }
+            catch(SocketException)
+            {
+            }
+
+            return response;
+        }
+
         private void BackgroundAddNode(object newNodeObj)
         {
             try
@@ -612,9 +633,13 @@ namespace LoopCacheLib
 
                 foreach (var kvp in nodeEndPoints)
                 {
+                    //
+                    //  If we skip the one we just added then nodes that were down 
+                    //  and come back up wont have thier status updated.
+                    //
                     // Skip the one we just added
-                    if (kvp.Key.Equals(newNode.GetName()))
-                        continue;
+                    //if (kvp.Key.Equals(newNode.GetName()))
+                        //continue;
 
                     // Skip self if master is also a data node
                     if (IsThisNodeEndPoint(kvp.Value))
@@ -1048,16 +1073,34 @@ namespace LoopCacheLib
             }
         }
 
+        Thread rebalanceThread;
+
         /// <summary>
         /// Starts the rebalancer
         /// </summary>
         private void StartRebalance()
         {
             // This is something we want to happen on a background thread
-            Thread t = new Thread(Rebalance);
-            t.Start();
+            rebalanceThread = new Thread(Rebalance);
+            rebalanceThread.Start();
 
             CacheHelper.LogInfo("Started Rebalance Thread");
+        }
+
+        private void StopRebalance()
+        {
+            if (rebalanceThread != null && rebalanceThread.IsAlive)
+            {
+                try
+                {
+                    rebalanceThread.Abort();
+                    CacheHelper.LogInfo("Aborted Rebalance Thread");
+                }
+                catch (ThreadAbortException)
+                {
+                    CacheHelper.LogError("Exception Aborting Rebalance Thread");
+                }
+            }                
         }
 
         /// <summary>
@@ -1619,6 +1662,19 @@ namespace LoopCacheLib
                 if (IsThisNode(node))
                 {
                     this.localDataNode = node;
+                    //
+                    //  If the node is in the ring its status should be up.
+                    //
+                    this.localDataNode.Status = CacheNodeStatus.Up;
+
+                    if (this.localDataNode.Status == CacheNodeStatus.Migrating)
+                    {
+                        //
+                        //  If were in the middle of rebalance we need to stop!
+                        //
+                        this.StopRebalance();
+                    }
+                    
                     found = true;
                 }
             }
@@ -1895,8 +1951,7 @@ namespace LoopCacheLib
 
             try
             {
-                CacheMessage response = CacheHelper.SendRequest(request, 
-                    this.config.MasterIPEndPoint);
+                CacheMessage response = CacheHelper.SendRequest(request, this.config.MasterIPEndPoint);
             
                 if (response.MessageType == (byte)CacheResponseTypes.Configuration)
                 {
