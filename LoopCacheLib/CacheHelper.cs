@@ -24,6 +24,8 @@ namespace LoopCacheLib
         public static Dictionary<string, PerformanceCounter> PerfCounters = 
             new Dictionary<string, PerformanceCounter>();
 
+        private static Dictionary<string, int> hashCodes = new Dictionary<string, int>();
+
         /// <summary>
         /// Convert the string to an integer representation of a consistent md5 hash.
         /// </summary>
@@ -36,13 +38,21 @@ namespace LoopCacheLib
         public static int GetConsistentHashCode(string s)
         {
             if (s == null) return 0;
+
+            if (hashCodes.ContainsKey(s))
+                return hashCodes[s];
+
             MD5 md5 = MD5.Create();
             byte[] hash = md5.ComputeHash(Encoding.ASCII.GetBytes(s));
             int a = BitConverter.ToInt32(hash, 0);
             int b = BitConverter.ToInt32(hash, 4);
             int c = BitConverter.ToInt32(hash, 8);
             int d = BitConverter.ToInt32(hash, 12);
-            return (a ^ b ^ c ^ d);
+
+            int hashCode = (a ^ b ^ c ^ d);
+            hashCodes[s] = hashCode;
+
+            return hashCode;
         }
 
         /// <summary>
@@ -203,7 +213,7 @@ namespace LoopCacheLib
             {
                 if (ip.AddressFamily == AddressFamily.InterNetwork)
                 {
-                    return new IPEndPoint(IPAddress.Parse(ip.ToString()), port);
+                    return new IPEndPoint(ip, port);
                 }
             }
 

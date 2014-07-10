@@ -326,7 +326,7 @@ namespace LoopCacheConsole
             //
             //  Trace
             //
-            config.IsTraceEnabled = true;
+            config.IsTraceEnabled = false;
             config.TraceFilePath = "D:\\CacheSupport\\Logs\\Master_12345.txt";
 
             return config;
@@ -349,7 +349,7 @@ namespace LoopCacheConsole
             //
             //  Trace
             //
-            config.IsTraceEnabled = true;
+            config.IsTraceEnabled = false;
             config.TraceFilePath = string.Format( "D:\\CacheSupport\\Logs\\Node_{0}.txt", portNumber);
 
             return config;

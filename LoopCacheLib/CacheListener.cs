@@ -22,7 +22,7 @@ namespace LoopCacheLib
         /// <summary>
         /// This is the object cache
         /// </summary>
-        private SortedList<string, byte[]> dataByKey;
+        private Dictionary<string, byte[]> dataByKey;
 
         /// <summary>
         /// A list of keys sorted by put time
@@ -36,7 +36,7 @@ namespace LoopCacheLib
         /// <summary>
         /// The last time objects were saved
         /// </summary>
-        private SortedList<string, DateTime> keyPutTimes;
+        private Dictionary<string, DateTime> keyPutTimes;
 
         /// <summary>
         /// The total number of bytes in dataByKey
@@ -100,9 +100,9 @@ namespace LoopCacheLib
         /// </remarks>
         public CacheListener()
         {
-            this.dataByKey = new SortedList<string, byte[]>();
+            this.dataByKey = new Dictionary<string, byte[]>();
             this.keysByTime = new SortedList<DateTime, List<string>>();
-            this.keyPutTimes = new SortedList<string, DateTime>();
+            this.keyPutTimes = new Dictionary<string, DateTime>();
         }
 
         /// <summary>
@@ -395,6 +395,8 @@ namespace LoopCacheLib
                     case CacheRequestTypes.Ping:             return Ping();
                     case CacheRequestTypes.Register:        
                         return Register(data, request.ClientEndPoint);
+                    case CacheRequestTypes.FireSale:         return FireSale(request.ClientEndPoint);
+                    case CacheRequestTypes.Clear:            return Clear();
 
                     default: 
                         CacheMessage response = new CacheMessage();
@@ -420,6 +422,95 @@ namespace LoopCacheLib
                     (byte)CacheResponseTypes.InternalServerError;
                 return response;
             }
+        }
+
+        public CacheMessage Clear()
+        {
+            //
+            //  Only master can recieve clear.
+            //
+            if (!this.config.IsMaster)
+                throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
+
+            CacheMessage response = new CacheMessage();
+            response.MessageType = (byte)CacheResponseTypes.Accepted;
+
+            Thread t = new Thread(BackgroundClear);
+            t.Start();
+
+            return response;
+        }
+
+        private void BackgroundClear()
+        {
+            //
+            //  Call FireSale on all nodes.
+            //
+            var nodeEndPoints = this.config.Ring.GetNodeEndPoints();
+
+            Parallel.ForEach(nodeEndPoints, node =>
+            {
+                int maxNumTries = 3;
+                int numTries = 0;
+
+                do
+                {
+                    try
+                    {
+                        numTries++;
+
+                        CacheMessage request = new CacheMessage();
+                        request.MessageType = (byte)CacheRequestTypes.FireSale;
+
+                        CacheMessage response = CacheHelper.SendRequest(request, node.Value);
+
+                        if (response == null || response.MessageType != (byte)CacheResponseTypes.Accepted)
+                        {
+                            //
+                            //  What to do?
+                            //
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        //
+                        //  What to do?
+                        //
+                    }
+                }
+                while (numTries < maxNumTries);
+            });
+        }
+
+        public CacheMessage FireSale(IPEndPoint remoteEndPoint)
+        {
+            //
+            //  Only data nodes have data to throw away.
+            //
+            if (!this.config.IsDataNode)
+                throw new CacheMessageException(CacheResponseTypes.NotDataNode);
+            //
+            //  Only master can call FireSale!
+            //
+            //if (!remoteEndPoint.Equals(this.config.MasterIPEndPoint))
+            //    throw new CacheMessageException(CacheResponseTypes.NotMasterNode);
+
+            CacheMessage response = new CacheMessage();
+            response.MessageType = (byte)CacheResponseTypes.Accepted;
+
+            Thread t = new Thread(BackgroundFireSale);
+            t.Start();
+
+            return response;
+        }
+
+        private void BackgroundFireSale()
+        {
+            this.dataByKey.Clear();
+            this.keysByTime.Clear();
+            this.keyPutTimes.Clear();
+            this.totalDataBytes = 0;
+            this.UpdateRAMStats();
         }
 
         /// <summary>
@@ -590,23 +681,6 @@ namespace LoopCacheLib
             return response;
         }
 
-        private CacheMessage PingNode(CacheNode node)
-        {
-            IPEndPoint ipep = CacheHelper.GetIPEndPoint(node.HostName, node.PortNumber);
-            CacheMessage ping = new CacheMessage(CacheRequestTypes.Ping);
-            CacheMessage response = null;
-
-            try
-            {
-                response = CacheHelper.SendRequest(ping, ipep);
-            }
-            catch(SocketException)
-            {
-            }
-
-            return response;
-        }
-
         private void BackgroundAddNode(object newNodeObj)
         {
             try
@@ -643,12 +717,18 @@ namespace LoopCacheLib
 
                     // Skip self if master is also a data node
                     if (IsThisNodeEndPoint(kvp.Value))
+                    {
+                        this.localDataNode = newNode;
                         continue;
+                    }                        
 
                     endPointsToPush.Add(kvp.Key, kvp.Value);
                 }
-
-                PushConfigToNodes(endPointsToPush);
+                //
+                //  Sometimes only the master is there and its also the data node.
+                //
+                if ( endPointsToPush.Count > 0 )
+                    this.PushConfigToNodes(endPointsToPush);
             }
             catch (Exception ex)
             {
@@ -818,6 +898,23 @@ namespace LoopCacheLib
         public CacheMessage Ping()
         {
             CacheMessage response = new CacheMessage(CacheResponseTypes.Accepted);
+            return response;
+        }
+
+        private CacheMessage PingNode(CacheNode node)
+        {
+            IPEndPoint ipep = CacheHelper.GetIPEndPoint(node.HostName, node.PortNumber);
+            CacheMessage ping = new CacheMessage(CacheRequestTypes.Ping);
+            CacheMessage response = null;
+
+            try
+            {
+                response = CacheHelper.SendRequest(ping, ipep);
+            }
+            catch (SocketException)
+            {
+            }
+
             return response;
         }
 
@@ -1285,7 +1382,7 @@ namespace LoopCacheLib
                 {
                     CacheHelper.LogTrace("Did not delete any objects to make room");
                 }
-              
+
                 // Add or update the object
                 if (this.dataByKey.ContainsKey(key))
                 {
@@ -1318,8 +1415,7 @@ namespace LoopCacheLib
                     // this key
                     if (this.keysByTime.ContainsKey(oldDateTime))
                     {
-                        List<string> keysAtOldTime = 
-                            this.keysByTime[oldDateTime];
+                        List<string> keysAtOldTime = this.keysByTime[oldDateTime];
                         keysAtOldTime.Remove(key);
                     }
                 }

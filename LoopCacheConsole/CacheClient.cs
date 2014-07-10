@@ -101,16 +101,25 @@ namespace LoopCacheConsole
         /// </remarks>
         private IPEndPoint GetNodeForKey(string key)
         {
+            IPEndPoint returnValue = null;
+
             int hashCode = GetConsistentHashCode(key);
-            IPEndPoint firstNode = null;
-            foreach (var kvp in this.sortedLocations)
+
+            var keys = this.sortedLocations.Keys;
+
+            for (int i = 0; i < keys.Count; i++)
             {
-                if (firstNode == null) firstNode = kvp.Value.EndPoint;
-                if (kvp.Key >= hashCode) return kvp.Value.EndPoint;
+                if (keys[i] >= hashCode)
+                {
+                    returnValue = this.sortedLocations[keys[i]].EndPoint;
+                    break;
+                }
             }
 
-            // We wrapped around Int.MAX
-            return firstNode;
+            if (returnValue == null)
+                returnValue = this.sortedLocations[keys[0]].EndPoint;
+
+            return returnValue;
         }
 
         /// <summary>

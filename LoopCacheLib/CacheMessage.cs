@@ -120,7 +120,17 @@ namespace LoopCacheLib
         /// <summary>
         /// A simple request that's just checking to see if the node is listening
         /// </summary>
-        Ping                = 12
+        Ping                = 12,
+
+        /// <summary>
+        /// Everything must go!
+        /// </summary>
+        FireSale            = 13,
+
+        /// <summary>
+        /// Removes all objects from the Cache.
+        /// </summary>
+        Clear               = 14
     }
 
     /// <summary>Return codes for the API calls</summary>
