@@ -24,7 +24,7 @@ namespace LoopCache.Manager
 
         private void btnConnect_Click(object sender, EventArgs e)
         {
-            this.DoThis(() =>
+            this.DoThisCatchExceptions(() =>
             {
                 string hostName = this.txtMasterHostName.Text;
                 int port = int.Parse(this.txtMasterPort.Text);
@@ -38,186 +38,50 @@ namespace LoopCache.Manager
 
         private void btnPush_Click(object sender, EventArgs e)
         {
-            this.DoThis(() =>
+            this.DoThisCatchExceptions(() =>
             {
+                this.txtStatus.Text = "Working...";
                 this.txtException.Text = string.Empty;
-
-                int seed = int.Parse(this.txtSeed.Text);
-
-                List<Tuple<string, Customer>> customers = new List<Tuple<string, Customer>>();
-
+                int start = int.Parse(this.txtSeed.Text);
                 int count = int.Parse(this.txtObjectCount.Text);
-
-                List<Exception> exceptions = new List<Exception>();
-
-                for (int i = 0; i < count; i++)
-                {
-                    string key = string.Concat("Customer:", seed);
-                    Customer cust = new Customer();
-                    cust.Number = seed;
-                    cust.Name = string.Concat("Jane Doe ", seed);
-
-                    customers.Add(new Tuple<string, Customer>(key, cust));
-                    seed++;
-                }
-
-                Stats s = new Stats();
-                System.Diagnostics.Stopwatch watch = new System.Diagnostics.Stopwatch();
-                watch.Start();
-
-                if (this.chkMultithread.Checked)
-                {
-                    Parallel.ForEach(customers, customer =>
-                    {
-                        try
-                        {
-                            bool success = this.Cache.Set(customer.Item1, customer.Item2);
-
-                            if (success)
-                                Interlocked.Increment(ref s.successCount);
-                            else
-                                Interlocked.Increment(ref s.failCount);
-                        }
-                        catch (Exception ex)
-                        {
-                            exceptions.Add(ex);
-                            Interlocked.Increment(ref s.failCount);
-                        }
-
-                        Interlocked.Increment(ref s.totalCount);
-                    });
-                }
-                else
-                {
-                    foreach (var customer in customers)
-                    {
-                        try
-                        {
-                            bool success = this.Cache.Set(customer.Item1, customer.Item2);
-
-                            if (success)
-                                s.successCount++;
-                            else
-                                s.failCount++;
-                        }
-                        catch (Exception ex)
-                        {
-                            exceptions.Add(ex);
-                            s.failCount++;
-                        }
-
-                        s.totalCount++;
-                    }
-                }
-
-                watch.Stop();
-
-                s.totalCount = count;
-                s.span = watch.Elapsed;
-
-                this.UpdatePerformanceStatus(s);
-                this.UpdateExceptions(exceptions);
+                bool multiThread = this.chkMultithread.Checked;
+                var invoker = new UpdateStatsDelegate(Push);
+                invoker.BeginInvoke(start, count, multiThread, UpdatePerformanceStatsCallBack, this);
             });
         }
 
         private void btnPull_Click(object sender, EventArgs e)
         {
-            this.DoThis(() =>
+            this.DoThisCatchExceptions(() =>
             {
+                this.txtStatus.Text = "Working...";
                 this.txtException.Text = string.Empty;
-
-                int seed = int.Parse(this.txtSeed.Text);
-
-                List<string> keys = new List<string>();
-
+                int start = int.Parse(this.txtSeed.Text);
                 int count = int.Parse(this.txtObjectCount.Text);
-
-                for (int i = 0; i < count; i++)
-                {
-                    string key = string.Concat("Customer:", seed);
-                    keys.Add(key);
-                    seed++;
-                }
-
-                List<Exception> exceptions = new List<Exception>();
-
-                Stats s = new Stats();
-                System.Diagnostics.Stopwatch watch = new System.Diagnostics.Stopwatch();
-                watch.Start();
-
-                if (this.chkMultithread.Checked)
-                {
-                    Parallel.ForEach(keys, key =>
-                    {
-                        try
-                        {
-                            var customer = this.Cache.Get(key);
-
-                            if (customer == null)
-                                Interlocked.Increment(ref s.successCount);
-                            else
-                                Interlocked.Increment(ref s.failCount);
-                        }
-                        catch (Exception ex)
-                        {
-                            exceptions.Add(ex);
-                            Interlocked.Increment(ref s.failCount);
-                        }
-
-                        Interlocked.Increment(ref s.totalCount);
-                    });
-                }
-                else
-                {
-                    foreach (var key in keys)
-                    {
-                        try
-                        {
-                            var customer = this.Cache.Get(key);
-
-                            if (customer == null)
-                                s.failCount++;
-                            else
-                                s.successCount++;
-                        }
-                        catch (Exception ex)
-                        {
-                            exceptions.Add(ex);
-                            s.failCount++;
-                        }
-
-                        s.totalCount++;
-                    }
-                }
-
-                watch.Stop();
-
-                s.totalCount = count;
-                s.span = watch.Elapsed;
-
-                this.UpdatePerformanceStatus(s);
-                this.UpdateExceptions(exceptions);
+                bool multiThread = this.chkMultithread.Checked;
+                var invoker = new UpdateStatsDelegate(Pull);
+                invoker.BeginInvoke(start, count, multiThread, UpdatePerformanceStatsCallBack, this);                
             });
         }
 
         private void btnClear_Click(object sender, EventArgs e)
         {
-            this.DoThis(() =>
+            this.DoThisCatchExceptions(() =>
             {
-                this.Cache.Clear();
+                var invoker = new UpdateStatsDelegate(Clear);
+                invoker.BeginInvoke(0, 0, true, UpdatePerformanceStatsCallBack, this);
             });
         }
 
         private void btnAddNode_Click(object sender, EventArgs e)
         {
-            this.DoThis(() =>
+            this.DoThisCatchExceptions(() =>
             {
                 string hostName = this.txtHostName.Text;
                 int port = int.Parse(this.txtPort.Text);
-                double multipler = double.Parse(this.txtMultiplier.Text);
-                long MaxBytes = (long)(OneGB * multipler);
-
-                this.Cache.Master.AddNode(hostName, port, MaxBytes);
+                double modiifer = double.Parse(this.txtModifier.Text);
+                long maxBytes = (long)(OneGB * modiifer);
+                this.Cache.Master.AddNode(hostName, port, maxBytes);
 
                 this.UpdateRingStatus();
 
@@ -227,7 +91,7 @@ namespace LoopCache.Manager
 
         private void btnRemoveNode_Click(object sender, EventArgs e)
         {
-            this.DoThis(() =>
+            this.DoThisCatchExceptions(() =>
             {
                 string hostName = this.txtHostName.Text;
                 int port = int.Parse(this.txtPort.Text);
@@ -239,77 +103,288 @@ namespace LoopCache.Manager
             });
         }
 
+        private void btnUpdateNode_Click(object sender, EventArgs e)
+        {
+            this.DoThisCatchExceptions(() =>
+            {
+                string hostName = this.txtHostName.Text;
+                int port = int.Parse(this.txtPort.Text);
+                double modiifer = double.Parse(this.txtModifier.Text);
+                long maxBytes = (long)(OneGB * modiifer);
+
+                this.Cache.Master.ChangeNode(hostName, port, maxBytes);
+
+                this.UpdateRingStatus();
+            });
+        }
+
         private void timer1_Tick(object sender, EventArgs e)
         {
-            this.DoThis(() =>
+            this.DoThisCatchExceptions(() =>
             {
                 this.UpdateRingStatus();
             });
         }
 
-        private void UpdateExceptions(List<Exception> exs)
+        private delegate Stats UpdateStatsDelegate(int start, int count, bool multiThread);
+
+        private delegate void GetConfigDelagate();
+
+        private Stats Clear(int start, int count, bool multiThread)
         {
-            StringBuilder builder = new StringBuilder();
-
-            foreach ( Exception ex in exs)
-            {
-                builder.Append(ex.Message);
-                builder.Append("\r\n");
-            }
-
-            this.txtException.Text = builder.ToString();
+            Stats s = new Stats();
+            this.Cache.Clear();
+            return s;
         }
 
-        private void UpdatePerformanceStatus(Stats stats)
+        private Stats Push(int start, int count, bool multiThread)
         {
-            StringBuilder builder = new StringBuilder();
-            builder.AppendFormat("Success.....{0}\r\n", stats.successCount);
-            builder.AppendFormat("Failure.....{0}\r\n", stats.failCount);
-            builder.AppendFormat("Total.......{0}\r\n", stats.totalCount);
-            builder.AppendFormat("Time(sec)...{0:0.00}\r\n", stats.span.TotalSeconds);
-            builder.AppendFormat("Per Second..{0:0.00}\r\n", stats.OPS);
+            List<Tuple<string, Customer>> customers = new List<Tuple<string, Customer>>();
 
-            this.txtStatus.Text = builder.ToString();
+            for (int i = 0; i < count; i++)
+            {
+                string key = string.Concat("Customer:", start);
+                Customer cust = new Customer();
+                cust.Number = start;
+                cust.Name = string.Concat("Jane Doe ", start);
+
+                customers.Add(new Tuple<string, Customer>(key, cust));
+                start++;
+            }
+
+            Stats s = new Stats();
+            System.Diagnostics.Stopwatch watch = new System.Diagnostics.Stopwatch();
+            watch.Start();
+
+            if (multiThread)
+            {
+                Parallel.ForEach(customers, customer =>
+                {
+                    try
+                    {
+                        bool success = this.Cache.Set(customer.Item1, customer.Item2);
+
+                        if (success)
+                            Interlocked.Increment(ref s.successCount);
+                        else
+                            Interlocked.Increment(ref s.failCount);
+                    }
+                    catch (Exception ex)
+                    {
+                        s.exceptions.Add(ex);
+                        Interlocked.Increment(ref s.failCount);
+                    }
+                    finally
+                    {
+                        Interlocked.Increment(ref s.totalCount);
+                    }
+                });
+            }
+            else
+            {
+                foreach (var customer in customers)
+                {
+                    try
+                    {
+                        bool success = this.Cache.Set(customer.Item1, customer.Item2);
+
+                        if (success)
+                            s.successCount++;
+                        else
+                            s.failCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        s.exceptions.Add(ex);
+                        s.failCount++;
+                    }
+                    finally
+                    {
+                        s.totalCount++;
+                    }
+                }
+            }
+
+            watch.Stop();
+
+            s.totalCount = count;
+            s.span = watch.Elapsed;
+
+            return s;
+        }
+
+        private Stats Pull(int start, int count, bool multiThread)
+        {
+            List<string> keys = new List<string>();
+
+            for (int i = 0; i < count; i++)
+            {
+                string key = string.Concat("Customer:", start);
+                keys.Add(key);
+                start++;
+            }
+
+            Stats s = new Stats();
+            System.Diagnostics.Stopwatch watch = new System.Diagnostics.Stopwatch();
+            watch.Start();
+
+            if (multiThread)
+            {
+                Parallel.ForEach(keys, key =>
+                {
+                    try
+                    {
+                        var customer = this.Cache.Get(key);
+
+                        if (customer == null)
+                            Interlocked.Increment(ref s.successCount);
+                        else
+                            Interlocked.Increment(ref s.failCount);
+                    }
+                    catch (Exception ex)
+                    {
+                        s.exceptions.Add(ex);
+                        Interlocked.Increment(ref s.failCount);
+                    }
+                    finally
+                    {
+                        Interlocked.Increment(ref s.totalCount);
+                    }
+                });
+            }
+            else
+            {
+                foreach (var key in keys)
+                {
+                    try
+                    {
+                        var customer = this.Cache.Get(key);
+
+                        if (customer == null)
+                            s.failCount++;
+                        else
+                            s.successCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        s.exceptions.Add(ex);
+                        s.failCount++;
+                    }
+                    finally
+                    {
+                        s.totalCount++;
+                    }
+                }
+            }
+
+            watch.Stop();
+
+            s.totalCount = count;
+            s.span = watch.Elapsed;
+
+            return s;
         }
 
         private void UpdateRingStatus()
         {
-            this.Cache.Master.GetConfig();
+            var invoker = new GetConfigDelagate(this.Cache.Master.GetConfig);
+            invoker.BeginInvoke(UpdateRingCallBack, this);
+        }
 
-            this.lstNodes.Items.Clear();
-            StringBuilder builder;
+        private void UpdatePerformanceStatsCallBack(IAsyncResult ar)
+        {
+            var result = ar as System.Runtime.Remoting.Messaging.AsyncResult;
+            var myDelegate = result.AsyncDelegate as UpdateStatsDelegate;
+            Stats stats = myDelegate.EndInvoke(ar);
 
-            foreach (var node in this.Cache.Master.Nodes)
+            MethodInvoker uiUpdater = delegate
             {
-                Node n = node.Value;
+                StringBuilder builder = new StringBuilder();
+                builder.AppendFormat("Success.....{0}\r\n", stats.successCount);
+                builder.AppendFormat("Failure.....{0}\r\n", stats.failCount);
+                builder.AppendFormat("Total.......{0}\r\n", stats.totalCount);
+                builder.AppendFormat("Time(sec)...{0:0.00}\r\n", stats.span.TotalSeconds);
+                builder.AppendFormat("Per Second..{0:0.00}\r\n", stats.OPS);
 
-                n.GetStats();
+                this.txtStatus.Text = builder.ToString();
 
                 builder = new StringBuilder();
-                builder.Append(n.Name);
-                builder.Append(" - ");
-                builder.Append(n.Status);
-                builder.Append(" - ");
-                builder.Append(((double)n.MaxNumBytes / (double)OneGB).ToString("0.00"));
-                builder.Append("GB");
 
-                double per = 0;
+                int exNum = 1;
 
-                if (n.MaxNumBytes > 0)
-                    per = ((double)n.LatestRAMBytes / (double)n.MaxNumBytes);
+                foreach (Exception ex in stats.exceptions)
+                {
+                    builder.Append(exNum);
+                    builder.Append(".");
+                    builder.Append(ex.Message);
+                    builder.Append("\r\n");
+                    exNum++;
+                }
 
-                builder.Append(per.ToString("(0.00%)"));
-                builder.Append(" - ");
-                builder.Append(n.NumObjects);
+                this.txtException.Text = builder.ToString();
+            };
 
-                this.lstNodes.Items.Add(builder.ToString());
-            }
+            if (this.txtStatus.InvokeRequired)
+                Invoke(uiUpdater);
+            else
+                uiUpdater();
+        }
+
+        private void UpdateRingCallBack(IAsyncResult ar)
+        {
+            var result = ar as System.Runtime.Remoting.Messaging.AsyncResult;
+            var myDelegate = result.AsyncDelegate as GetConfigDelagate;
+            myDelegate.EndInvoke(ar);
+
+            MethodInvoker uiUpdater = delegate
+            {
+                this.lstNodes.Items.Clear(); 
+                StringBuilder builder;
+                Node n;
+
+                double maxGB;
+                double latGB;
+
+                foreach (var node in this.Cache.Master.Nodes)
+                {
+                    n = node.Value;
+                    n.GetStats();
+
+                    maxGB = ((double)n.MaxNumBytes / (double)OneGB);
+                    latGB = ((double)n.LatestRAMBytes / (double)OneGB);
+
+                    double per = 0;
+
+                    if (n.MaxNumBytes > 0)
+                        per = (latGB / maxGB);
+
+                    builder = new StringBuilder();
+                    builder.Append(n.Name);
+                    builder.Append(" - ");
+                    builder.Append(n.Status);
+                    builder.Append(" - ");
+                    builder.Append(latGB.ToString("0.00"));
+                    builder.Append("/");
+                    builder.Append(maxGB.ToString("0.00"));
+                    builder.Append(per.ToString("(0.00%)"));
+                    //builder.Append(" - ");
+                    //builder.Append(n.NumObjects);
+
+                    this.lstNodes.Items.Add(builder.ToString());
+                }
+            };
+
+            if (this.lstNodes.InvokeRequired)
+                Invoke(uiUpdater);
+            else
+                uiUpdater();
         }
 
         private void SetControls()
         {
             bool connected = (this.Cache != null);
             this.btnAddNode.Enabled = connected;
+            this.btnUpdateNode.Enabled = connected;
             this.btnRemoveNode.Enabled = connected;
             this.btnPushData.Enabled = connected;
             this.btnPull.Enabled = connected;
@@ -324,7 +399,7 @@ namespace LoopCache.Manager
                 this.timer1.Stop();
         }
 
-        private void DoThis( Action action )
+        private void DoThisCatchExceptions(Action action)
         {
 
             Cursor.Current = Cursors.WaitCursor;
@@ -353,9 +428,9 @@ namespace LoopCache.Manager
         {
             public int successCount = 0;
             public int failCount = 0;
-            public int exceptionCount = 0;
             public int totalCount = 0;
             public TimeSpan span = new TimeSpan();
+            public List<Exception> exceptions = new List<Exception>();
             public double OPS
             {
                 get { return (totalCount / span.TotalSeconds); }

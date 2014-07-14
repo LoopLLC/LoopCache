@@ -13,7 +13,6 @@ namespace LoopCache.Client
     public static class Common
     {
         private static int MaxLength = 1024 * 1024; // 1Mb
-        public static Dictionary<string, IPEndPoint> EndPoints = new Dictionary<string, IPEndPoint>();
         private static Dictionary<string, int> hashCodes = new Dictionary<string, int>();
 
         /// <summary>
@@ -63,25 +62,15 @@ namespace LoopCache.Client
         /// <returns></returns>
         public static IPEndPoint GetIPEndPoint(string hostname, int port)
         {
-            string key = string.Format("{0}:{1}", hostname, port);
-
-            if (EndPoints.ContainsKey(key))
-                return EndPoints[key];
-
             IPEndPoint returnValue = null;
 
-            if (returnValue == null)
-            {
-                IPAddress[] ips = Dns.GetHostAddresses(hostname);
+            IPAddress[] ips = Dns.GetHostAddresses(hostname);
 
-                foreach (IPAddress ip in ips)
+            foreach (IPAddress ip in ips)
+            {
+                if (ip.AddressFamily == AddressFamily.InterNetwork)
                 {
-                    if (ip.AddressFamily == AddressFamily.InterNetwork)
-                    {
-                        returnValue = new IPEndPoint(ip, port);
-                        EndPoints[key] = returnValue;
-                        break;
-                    }
+                    returnValue = new IPEndPoint(ip, port);
                 }
             }
 

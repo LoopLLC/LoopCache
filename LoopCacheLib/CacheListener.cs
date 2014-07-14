@@ -565,26 +565,30 @@ namespace LoopCacheLib
                 }
             }
 
-            CacheNode node = null;
-            if (nodeName != null)
-            {
-                node = this.config.Ring.FindNodeByName(nodeName);
+            if (nodeName == null)
+                return new CacheMessage(CacheResponseTypes.UnknownNode);
 
-                if (node == null)
-                    return new CacheMessage(CacheResponseTypes.UnknownNode);
+            CacheNode node = this.config.Ring.FindNodeByName(nodeName);
+
+            if (node == null)
+                return new CacheMessage(CacheResponseTypes.UnknownNode);
+            //
+            //  Ping the node, 
+            //
+            var pingResponse = this.PingNode(node);
+            //
+            //  if it doesnt respond set it to Questionable call interpol.
+            //
+            if (pingResponse == null)
+            {
+                this.config.Ring.SetNodeStatus(node, CacheNodeStatus.Questionable);
                 //
-                //  Ping the node, 
+                //  TODO: Need to do something like email admin.
                 //
-                var pingResponse = this.PingNode(node);
-                //
-                //  if it doesnt respond set it to hard down and remove it from the ring.
-                //
-                if (pingResponse == null)
-                {
-                    this.config.Ring.SetNodeStatus(node, CacheNodeStatus.Down);
-                    Thread t = new Thread(BackgroundRemoveNode);
-                    t.Start(node);
-                }
+            }
+            else
+            {
+                return new CacheMessage(CacheResponseTypes.NodeExists);
             }
 
             return response;
@@ -702,25 +706,21 @@ namespace LoopCacheLib
                 var nodeEndPoints = this.config.Ring.GetNodeEndPoints();
 
                 // Create a list of end points that need the configuration
-                SortedList<string, IPEndPoint> endPointsToPush = 
-                    new SortedList<string, IPEndPoint>();
+                var endPointsToPush = new Dictionary<string, IPEndPoint>();
+
+                if (IsThisNodeEndPoint(newNode.IPEndPoint))
+                {
+                    //
+                    //  The node changed is the master. Update it, but dont push.
+                    //                 
+                    this.localDataNode = newNode;
+                }
 
                 foreach (var kvp in nodeEndPoints)
                 {
-                    //
-                    //  If we skip the one we just added then nodes that were down 
-                    //  and come back up wont have thier status updated.
-                    //
-                    // Skip the one we just added
-                    //if (kvp.Key.Equals(newNode.GetName()))
-                        //continue;
-
                     // Skip self if master is also a data node
                     if (IsThisNodeEndPoint(kvp.Value))
-                    {
-                        this.localDataNode = newNode;
                         continue;
-                    }                        
 
                     endPointsToPush.Add(kvp.Key, kvp.Value);
                 }
@@ -738,7 +738,7 @@ namespace LoopCacheLib
             }
         }
 
-        private void PushConfigToNodes(SortedList<string, IPEndPoint> endPointsToPush)
+        private void PushConfigToNodes(Dictionary<string, IPEndPoint> endPointsToPush)
         {
             // Serialize the current node configuration
             byte[] config = SerializeNodes(this.config.Ring, false);
@@ -864,8 +864,7 @@ namespace LoopCacheLib
                 var nodeEndPoints = this.config.Ring.GetNodeEndPoints();
 
                 // Create a list of end points that need the configuration
-                SortedList<string, IPEndPoint> endPointsToPush = 
-                    new SortedList<string, IPEndPoint>();
+                var endPointsToPush = new Dictionary<string, IPEndPoint>();
 
                 foreach (var kvp in nodeEndPoints)
                 {
@@ -979,8 +978,15 @@ namespace LoopCacheLib
                 var nodeEndPoints = this.config.Ring.GetNodeEndPoints();
 
                 // Create a list of end points that need the configuration
-                SortedList<string, IPEndPoint> endPointsToPush =
-                    new SortedList<string, IPEndPoint>();
+                var endPointsToPush = new Dictionary<string, IPEndPoint>();
+
+                if (IsThisNodeEndPoint(changedNode.IPEndPoint))
+                {
+                    //
+                    //  The node changed is the master. Update it, but dont push.
+                    //
+                    this.localDataNode = changedNode;
+                }
 
                 foreach (var kvp in nodeEndPoints)
                 {

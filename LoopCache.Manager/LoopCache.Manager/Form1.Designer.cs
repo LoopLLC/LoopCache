@@ -32,12 +32,15 @@
             this.btnPushData = new System.Windows.Forms.Button();
             this.btnAddNode = new System.Windows.Forms.Button();
             this.txtPort = new System.Windows.Forms.TextBox();
-            this.txtMultiplier = new System.Windows.Forms.TextBox();
+            this.txtModifier = new System.Windows.Forms.TextBox();
             this.lstNodes = new System.Windows.Forms.ListBox();
             this.btnRemoveNode = new System.Windows.Forms.Button();
             this.groupBox1 = new System.Windows.Forms.GroupBox();
+            this.btnUpdateNode = new System.Windows.Forms.Button();
             this.txtHostName = new System.Windows.Forms.TextBox();
             this.groupBox2 = new System.Windows.Forms.GroupBox();
+            this.btnClear = new System.Windows.Forms.Button();
+            this.chkMultithread = new System.Windows.Forms.CheckBox();
             this.label2 = new System.Windows.Forms.Label();
             this.label1 = new System.Windows.Forms.Label();
             this.btnPull = new System.Windows.Forms.Button();
@@ -50,8 +53,6 @@
             this.btnConnect = new System.Windows.Forms.Button();
             this.txtMasterPort = new System.Windows.Forms.TextBox();
             this.txtMasterHostName = new System.Windows.Forms.TextBox();
-            this.chkMultithread = new System.Windows.Forms.CheckBox();
-            this.btnClear = new System.Windows.Forms.Button();
             this.groupBox1.SuspendLayout();
             this.groupBox2.SuspendLayout();
             this.pnlMaster.SuspendLayout();
@@ -69,7 +70,7 @@
             // 
             // btnAddNode
             // 
-            this.btnAddNode.Location = new System.Drawing.Point(255, 19);
+            this.btnAddNode.Location = new System.Drawing.Point(174, 19);
             this.btnAddNode.Name = "btnAddNode";
             this.btnAddNode.Size = new System.Drawing.Size(75, 23);
             this.btnAddNode.TabIndex = 1;
@@ -79,20 +80,20 @@
             // 
             // txtPort
             // 
-            this.txtPort.Location = new System.Drawing.Point(87, 19);
+            this.txtPort.Location = new System.Drawing.Point(63, 19);
             this.txtPort.Multiline = true;
             this.txtPort.Name = "txtPort";
-            this.txtPort.Size = new System.Drawing.Size(86, 20);
+            this.txtPort.Size = new System.Drawing.Size(60, 20);
             this.txtPort.TabIndex = 2;
             this.txtPort.Text = "12345";
             // 
-            // txtMultiplier
+            // txtModifier
             // 
-            this.txtMultiplier.Location = new System.Drawing.Point(179, 19);
-            this.txtMultiplier.Name = "txtMultiplier";
-            this.txtMultiplier.Size = new System.Drawing.Size(70, 20);
-            this.txtMultiplier.TabIndex = 3;
-            this.txtMultiplier.Text = "0.25";
+            this.txtModifier.Location = new System.Drawing.Point(129, 19);
+            this.txtModifier.Name = "txtModifier";
+            this.txtModifier.Size = new System.Drawing.Size(39, 20);
+            this.txtModifier.TabIndex = 3;
+            this.txtModifier.Text = ".1";
             // 
             // lstNodes
             // 
@@ -116,12 +117,13 @@
             // 
             // groupBox1
             // 
+            this.groupBox1.Controls.Add(this.btnUpdateNode);
             this.groupBox1.Controls.Add(this.txtHostName);
             this.groupBox1.Controls.Add(this.txtPort);
             this.groupBox1.Controls.Add(this.btnRemoveNode);
             this.groupBox1.Controls.Add(this.btnAddNode);
             this.groupBox1.Controls.Add(this.lstNodes);
-            this.groupBox1.Controls.Add(this.txtMultiplier);
+            this.groupBox1.Controls.Add(this.txtModifier);
             this.groupBox1.Location = new System.Drawing.Point(12, 67);
             this.groupBox1.Name = "groupBox1";
             this.groupBox1.Size = new System.Drawing.Size(417, 388);
@@ -129,11 +131,21 @@
             this.groupBox1.TabStop = false;
             this.groupBox1.Text = "Ring";
             // 
+            // btnUpdateNode
+            // 
+            this.btnUpdateNode.Location = new System.Drawing.Point(255, 19);
+            this.btnUpdateNode.Name = "btnUpdateNode";
+            this.btnUpdateNode.Size = new System.Drawing.Size(75, 23);
+            this.btnUpdateNode.TabIndex = 9;
+            this.btnUpdateNode.Text = "Update";
+            this.btnUpdateNode.UseVisualStyleBackColor = true;
+            this.btnUpdateNode.Click += new System.EventHandler(this.btnUpdateNode_Click);
+            // 
             // txtHostName
             // 
             this.txtHostName.Location = new System.Drawing.Point(6, 19);
             this.txtHostName.Name = "txtHostName";
-            this.txtHostName.Size = new System.Drawing.Size(75, 20);
+            this.txtHostName.Size = new System.Drawing.Size(51, 20);
             this.txtHostName.TabIndex = 8;
             this.txtHostName.Text = "localhost";
             // 
@@ -155,6 +167,28 @@
             this.groupBox2.TabIndex = 9;
             this.groupBox2.TabStop = false;
             this.groupBox2.Text = "Test";
+            // 
+            // btnClear
+            // 
+            this.btnClear.Location = new System.Drawing.Point(454, 20);
+            this.btnClear.Name = "btnClear";
+            this.btnClear.Size = new System.Drawing.Size(75, 23);
+            this.btnClear.TabIndex = 9;
+            this.btnClear.Text = "Clear";
+            this.btnClear.UseVisualStyleBackColor = true;
+            this.btnClear.Click += new System.EventHandler(this.btnClear_Click);
+            // 
+            // chkMultithread
+            // 
+            this.chkMultithread.AutoSize = true;
+            this.chkMultithread.Checked = true;
+            this.chkMultithread.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.chkMultithread.Location = new System.Drawing.Point(209, 24);
+            this.chkMultithread.Name = "chkMultithread";
+            this.chkMultithread.Size = new System.Drawing.Size(78, 17);
+            this.chkMultithread.TabIndex = 8;
+            this.chkMultithread.Text = "Multithread";
+            this.chkMultithread.UseVisualStyleBackColor = true;
             // 
             // label2
             // 
@@ -262,28 +296,6 @@
             this.txtMasterHostName.TabIndex = 0;
             this.txtMasterHostName.Text = "localhost";
             // 
-            // chkMultithread
-            // 
-            this.chkMultithread.AutoSize = true;
-            this.chkMultithread.Checked = true;
-            this.chkMultithread.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.chkMultithread.Location = new System.Drawing.Point(209, 24);
-            this.chkMultithread.Name = "chkMultithread";
-            this.chkMultithread.Size = new System.Drawing.Size(78, 17);
-            this.chkMultithread.TabIndex = 8;
-            this.chkMultithread.Text = "Multithread";
-            this.chkMultithread.UseVisualStyleBackColor = true;
-            // 
-            // btnClear
-            // 
-            this.btnClear.Location = new System.Drawing.Point(454, 20);
-            this.btnClear.Name = "btnClear";
-            this.btnClear.Size = new System.Drawing.Size(75, 23);
-            this.btnClear.TabIndex = 9;
-            this.btnClear.Text = "Clear";
-            this.btnClear.UseVisualStyleBackColor = true;
-            this.btnClear.Click += new System.EventHandler(this.btnClear_Click);
-            // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -309,7 +321,7 @@
         private System.Windows.Forms.Button btnPushData;
         private System.Windows.Forms.Button btnAddNode;
         private System.Windows.Forms.TextBox txtPort;
-        private System.Windows.Forms.TextBox txtMultiplier;
+        private System.Windows.Forms.TextBox txtModifier;
         private System.Windows.Forms.ListBox lstNodes;
         private System.Windows.Forms.Button btnRemoveNode;
         private System.Windows.Forms.GroupBox groupBox1;
@@ -329,6 +341,7 @@
         private System.Windows.Forms.Button btnPull;
         private System.Windows.Forms.CheckBox chkMultithread;
         private System.Windows.Forms.Button btnClear;
+        private System.Windows.Forms.Button btnUpdateNode;
     }
 }
 
