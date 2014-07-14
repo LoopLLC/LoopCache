@@ -1,7 +1,9 @@
 ﻿using LoopCache.Client;
+using LoopCache.Admin;
 using System;
 using System.Collections.Generic;
 using System.Configuration;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Text;
@@ -13,7 +15,9 @@ namespace LoopCache.Manager
 {
     public partial class Form1 : Form
     {
-        private Cache Cache { get; set; }
+        //private Cache Cache { get; set; }
+        private CacheAdmin CacheAdmin { get; set; }
+
         private long OneGB = (long)(1024 * 1024 * 1024);
 
         public Form1()
@@ -28,7 +32,8 @@ namespace LoopCache.Manager
             {
                 string hostName = this.txtMasterHostName.Text;
                 int port = int.Parse(this.txtMasterPort.Text);
-                this.Cache = new Cache(hostName, port);
+                //this.Cache = new Cache(hostName, port);
+                this.CacheAdmin = new CacheAdmin(hostName, port);
 
                 this.UpdateRingStatus();
                 this.SetControls();
@@ -81,7 +86,7 @@ namespace LoopCache.Manager
                 int port = int.Parse(this.txtPort.Text);
                 double modiifer = double.Parse(this.txtModifier.Text);
                 long maxBytes = (long)(OneGB * modiifer);
-                this.Cache.Master.AddNode(hostName, port, maxBytes);
+                this.CacheAdmin.AddNode(hostName, port, maxBytes);
 
                 this.UpdateRingStatus();
 
@@ -95,7 +100,7 @@ namespace LoopCache.Manager
             {
                 string hostName = this.txtHostName.Text;
                 int port = int.Parse(this.txtPort.Text);
-                this.Cache.Master.RemoveNode(hostName, port);
+                this.CacheAdmin.RemoveNode(hostName, port);
 
                 this.UpdateRingStatus();
 
@@ -112,7 +117,7 @@ namespace LoopCache.Manager
                 double modiifer = double.Parse(this.txtModifier.Text);
                 long maxBytes = (long)(OneGB * modiifer);
 
-                this.Cache.Master.ChangeNode(hostName, port, maxBytes);
+                this.CacheAdmin.ChangeNode(hostName, port, maxBytes);
 
                 this.UpdateRingStatus();
             });
@@ -133,7 +138,7 @@ namespace LoopCache.Manager
         private Stats Clear(int start, int count, bool multiThread)
         {
             Stats s = new Stats();
-            this.Cache.Clear();
+            this.CacheAdmin.Clear();
             return s;
         }
 
@@ -145,15 +150,17 @@ namespace LoopCache.Manager
             {
                 string key = string.Concat("Customer:", start);
                 Customer cust = new Customer();
-                cust.Number = start;
-                cust.Name = string.Concat("Jane Doe ", start);
+                cust.Number = Guid.NewGuid();
+                cust.FirstName = string.Concat("Jane", start);
+                cust.LastName = string.Concat("Doe", start);
+                cust.DOB = DateTime.Now;
 
                 customers.Add(new Tuple<string, Customer>(key, cust));
                 start++;
             }
 
             Stats s = new Stats();
-            System.Diagnostics.Stopwatch watch = new System.Diagnostics.Stopwatch();
+            Stopwatch watch = new Stopwatch();
             watch.Start();
 
             if (multiThread)
@@ -162,7 +169,7 @@ namespace LoopCache.Manager
                 {
                     try
                     {
-                        bool success = this.Cache.Set(customer.Item1, customer.Item2);
+                        bool success = this.CacheAdmin.Set(customer.Item1, customer.Item2);
 
                         if (success)
                             Interlocked.Increment(ref s.successCount);
@@ -186,7 +193,7 @@ namespace LoopCache.Manager
                 {
                     try
                     {
-                        bool success = this.Cache.Set(customer.Item1, customer.Item2);
+                        bool success = this.CacheAdmin.Set(customer.Item1, customer.Item2);
 
                         if (success)
                             s.successCount++;
@@ -225,7 +232,7 @@ namespace LoopCache.Manager
             }
 
             Stats s = new Stats();
-            System.Diagnostics.Stopwatch watch = new System.Diagnostics.Stopwatch();
+            Stopwatch watch = new Stopwatch();
             watch.Start();
 
             if (multiThread)
@@ -234,12 +241,12 @@ namespace LoopCache.Manager
                 {
                     try
                     {
-                        var customer = this.Cache.Get(key);
+                        var customer = this.CacheAdmin.Get(key);
 
                         if (customer == null)
-                            Interlocked.Increment(ref s.successCount);
-                        else
                             Interlocked.Increment(ref s.failCount);
+                        else
+                            Interlocked.Increment(ref s.successCount);
                     }
                     catch (Exception ex)
                     {
@@ -258,7 +265,7 @@ namespace LoopCache.Manager
                 {
                     try
                     {
-                        var customer = this.Cache.Get(key);
+                        var customer = this.CacheAdmin.Get(key);
 
                         if (customer == null)
                             s.failCount++;
@@ -287,7 +294,7 @@ namespace LoopCache.Manager
 
         private void UpdateRingStatus()
         {
-            var invoker = new GetConfigDelagate(this.Cache.Master.GetConfig);
+            var invoker = new GetConfigDelagate(this.CacheAdmin.GetConfig);
             invoker.BeginInvoke(UpdateRingCallBack, this);
         }
 
@@ -311,11 +318,18 @@ namespace LoopCache.Manager
                 builder = new StringBuilder();
 
                 int exNum = 1;
+                int lineNum = 0;
 
                 foreach (Exception ex in stats.exceptions)
                 {
+                    lineNum = new StackTrace(ex, true).GetFrame(0).GetFileLineNumber();
+
                     builder.Append(exNum);
-                    builder.Append(".");
+                    builder.Append(". ");
+                    builder.Append(lineNum);
+                    builder.Append(" - ");
+                    builder.Append(ex.TargetSite);
+                    builder.Append(" - ");
                     builder.Append(ex.Message);
                     builder.Append("\r\n");
                     exNum++;
@@ -345,30 +359,29 @@ namespace LoopCache.Manager
                 double maxGB;
                 double latGB;
 
-                foreach (var node in this.Cache.Master.Nodes)
-                {
-                    n = node.Value;
-                    n.GetStats();
+                List<Node> nodes = CacheAdmin.GetRingStats();
 
-                    maxGB = ((double)n.MaxNumBytes / (double)OneGB);
-                    latGB = ((double)n.LatestRAMBytes / (double)OneGB);
+                foreach (var node in nodes)
+                {
+                    maxGB = ((double)node.MaxNumBytes / (double)OneGB);
+                    latGB = ((double)node.LatestRAMBytes / (double)OneGB);
 
                     double per = 0;
 
-                    if (n.MaxNumBytes > 0)
+                    if (node.MaxNumBytes > 0)
                         per = (latGB / maxGB);
 
                     builder = new StringBuilder();
-                    builder.Append(n.Name);
+                    builder.Append(node.Name);
                     builder.Append(" - ");
-                    builder.Append(n.Status);
+                    builder.Append(node.Status);
                     builder.Append(" - ");
                     builder.Append(latGB.ToString("0.00"));
                     builder.Append("/");
                     builder.Append(maxGB.ToString("0.00"));
                     builder.Append(per.ToString("(0.00%)"));
-                    //builder.Append(" - ");
-                    //builder.Append(n.NumObjects);
+                    builder.Append(" - ");
+                    builder.Append(node.NumObjects);
 
                     this.lstNodes.Items.Add(builder.ToString());
                 }
@@ -382,7 +395,7 @@ namespace LoopCache.Manager
 
         private void SetControls()
         {
-            bool connected = (this.Cache != null);
+            bool connected = (this.CacheAdmin != null);
             this.btnAddNode.Enabled = connected;
             this.btnUpdateNode.Enabled = connected;
             this.btnRemoveNode.Enabled = connected;
@@ -420,8 +433,11 @@ namespace LoopCache.Manager
         [Serializable]
         private class Customer
         {
-            public int Number { get; set; }
-            public string Name { get; set; }
+            public Guid Number { get; set; }
+            public string FirstName { get; set; }
+            public string LastName { get; set; }
+            public string FullName { get { return string.Join(" ", this.FirstName, this.LastName); } }
+            public DateTime DOB { get; set; }
         }
 
         private class Stats

@@ -40,13 +40,6 @@ namespace LoopCache.Client
             Migrating = 4
         }
 
-        public StatusType Status { get; set; }
-
-        /// <summary>
-        /// Max number of bytes the node can handle
-        /// </summary>
-        public long MaxNumBytes { get; set; }
-
         public Node(string hostName, int port)
         {
             this.HostName = hostName;
@@ -70,63 +63,14 @@ namespace LoopCache.Client
             this.Name = string.Format("{0}:{1}", hostName, port).ToUpper();
         }
 
-        public string HostName { get; private set; }
-        public int Port { get; private set; }
-        public string Name { get; private set; }
-        //
-        //  Stats
-        //
+        public StatusType Status { get; set; }
         public int NumObjects { get; set; }
         public long TotalDataBytes { get; set; }
         public long LatestRAMBytes { get; set; }
         public decimal RAMMultiplier { get; set; }
-
-        public void GetStats()
-        {
-            // NumObjects       int
-            // TotalDataBytes   long
-            // LatestRAMBytes   long
-            // RAMMultiplierLen int
-            // RAMMultiplier    byte[] UTF8 string e.g. "1.3"
-            // MaxNumBytes      long
-            // Status           byte
-            //      1=Down
-            //      2=Up
-            //      3=Questionable
-            //      4=Migrating
-            Request request = new Request(Request.Types.GetStats);
-            Response response = Common.SendMessage(this.HostName, this.Port, request);
-
-            if (response == null || response.Data.Length == 0)
-            {
-                this.Status = StatusType.Questionable;
-                return;
-            }
-
-            if (response.Data.Length > 0)
-            {
-                using (MemoryStream ms = new MemoryStream(response.Data))
-                {
-                    using (BinaryReader reader = new BinaryReader(ms))
-                    {
-                        this.NumObjects         = Common.Read(reader.ReadInt32());
-                        this.TotalDataBytes     = Common.Read(reader.ReadInt64());
-                        this.LatestRAMBytes     = Common.Read(reader.ReadInt64());
-
-                        int readLen             = Common.Read(reader.ReadInt32());
-                        byte[] tempData = new byte[readLen];
-
-                        if (reader.Read(tempData, 0, readLen) != readLen)
-                            throw new Exception("Invalid RAM Multipler Data");
-
-                        string temp             = Common.Read(tempData);
-                        this.RAMMultiplier = decimal.Parse(temp);
-
-                        this.MaxNumBytes        = Common.Read(reader.ReadInt64());
-                        this.Status = (Node.StatusType)reader.ReadByte();
-                    }
-                }
-            }
-        }
+        public long MaxNumBytes { get; set; }
+        public string HostName { get; private set; }
+        public int Port { get; private set; }
+        public string Name { get; private set; }
     }
 }
