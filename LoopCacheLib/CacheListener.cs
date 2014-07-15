@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -37,6 +38,9 @@ namespace LoopCacheLib
         /// The last time objects were saved
         /// </summary>
         private Dictionary<string, DateTime> keyPutTimes;
+
+        //private Thread putThread;
+        //private ObservableCollection<KeyValuePair<string, byte[]>> puts;
 
         /// <summary>
         /// The total number of bytes in dataByKey
@@ -103,6 +107,13 @@ namespace LoopCacheLib
             this.dataByKey = new Dictionary<string, byte[]>();
             this.keysByTime = new SortedList<DateTime, List<string>>();
             this.keyPutTimes = new Dictionary<string, DateTime>();
+            //this.puts = new List<KeyValuePair<string, byte[]>>();
+
+            //this.putThread = new Thread(PutObjectWorker);
+            //this.putThread.Start();
+
+            //this.puts = new ObservableCollection<KeyValuePair<string, byte[]>>();
+            //this.puts.CollectionChanged += puts_CollectionChanged;
         }
 
         /// <summary>
@@ -1320,17 +1331,60 @@ namespace LoopCacheLib
                 // If this node owns the key, store the object.
                 // If not, tell the client to reconfigure.
                 if (IsThisNode(keyString))
-                    return PutObject(keyString, objectData);
+                {
+                    Task.Run(() =>
+                    {
+                        var kvp = new KeyValuePair<string, byte[]>(keyString, objectData);
+                        this.PutObject(kvp);
+                    });
+
+                    try
+                    {
+                        CacheHelper.PerfCounters[CacheHelper.PutsPerSecond].Increment();
+                    }
+                    catch { }                    
+                    
+                    CacheMessage response = new CacheMessage(CacheResponseTypes.ObjectOk);
+                    return response;
+                }
                 else
+                {
                     return CreateReConfigureMessage();
+                }
             }
         }
 
-        private CacheMessage PutObject(string key, byte[] data)
-        {
-            // This method is called after we have determined that this node owns the key
+        //private void puts_CollectionChanged(object sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+        //{
+        //    Task.Run(() =>
+        //    {
+        //        KeyValuePair<string, byte[]> kvp;
+        //        foreach (var item in e.NewItems)
+        //        {
+        //            kvp = (KeyValuePair<string, byte[]>)item;
+        //            this.PutObject(kvp);
+        //            //this.puts.Remove(kvp);
+        //        }
+        //    });
+        //}
 
-            CacheMessage response = new CacheMessage();
+        //private void PutObjectWorker()
+        //{
+        //    while (puts.Count > 0)
+        //    {
+        //        this.PutObject(puts[0]);
+        //        this.puts.RemoveAt(0);
+        //        Thread.Sleep(1);
+        //    }
+
+        //    Thread.Sleep(1000);
+        //    this.PutObjectWorker();
+        //}
+
+        private void PutObject(KeyValuePair<string, byte[]> kvp)
+        {
+            string key = kvp.Key;
+            byte[] data = kvp.Value;
 
             try
             {
@@ -1445,26 +1499,15 @@ namespace LoopCacheLib
                 {
                     keysNow.Add(key);
                 }
-
-                response.MessageType = (byte)CacheResponseTypes.ObjectOk;
             }
             catch (Exception ex)
             {
                 CacheHelper.LogError(ex.ToString());
-                response.MessageType = (byte)CacheResponseTypes.InternalServerError;
             }
             finally
             {
                 this.dataLock.ExitWriteLock();
             }
-
-            try
-            {
-                CacheHelper.PerfCounters[CacheHelper.PutsPerSecond].Increment();
-            }
-            catch { }
-
-            return response;
         }
 
         /// <summary>
@@ -1634,9 +1677,18 @@ namespace LoopCacheLib
             // If this node owns the key, remove the object.
             // If not, tell the client to reconfigure.
             if (IsThisNode(keyString))
-                return DeleteObject(keyString);
+            {
+                Task.Run(() =>
+                {
+                    DeleteObject(keyString);
+                });
+
+                return new CacheMessage(CacheResponseTypes.ObjectOk);
+            }
             else
+            {
                 return CreateReConfigureMessage();
+            }
 
         }
 
@@ -1709,23 +1761,23 @@ namespace LoopCacheLib
             return inDataByKey;
         }
 
-        private CacheMessage DeleteObject(string keyString)
+        private void DeleteObject(string keyString)
         {
             // This method is called after we have determined that this node owns the key
             try
             {
                 this.dataLock.EnterWriteLock();
 
-                bool inDataByKey = DeleteObjectInWriteLock(keyString);
+                DeleteObjectInWriteLock(keyString);
 
-                CacheMessage response = new CacheMessage();
+                //CacheMessage response = new CacheMessage();
 
-                if (inDataByKey)
-                    response.MessageType = 
-                        (byte)CacheResponseTypes.ObjectOk;
-                else
-                    response.MessageType = 
-                        (byte)CacheResponseTypes.ObjectMissing;
+                //if (inDataByKey)
+                //    response.MessageType = 
+                //        (byte)CacheResponseTypes.ObjectOk;
+                //else
+                //    response.MessageType = 
+                //        (byte)CacheResponseTypes.ObjectMissing;
 
                 try
                 {
@@ -1733,7 +1785,7 @@ namespace LoopCacheLib
                 }
                 catch { }
 
-                return response;
+                //return response;
             }
             finally
             {

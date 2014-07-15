@@ -47,9 +47,9 @@ namespace LoopCache.Client
         {
             T returnValue = default(T);
 
-            Request request = new Request(Request.Types.GetObject, key, Encoding.UTF8.GetBytes(key));
+            Request request = new Request(Request.Types.GetObject, key, CacheBase.WriteHostName(key));
 
-            var response = base.SendNodeRequest(request);
+            var response = base.SendOrQueueNodeRequest(request);
             if (response != null)
             {
                 if (response.Type == Response.Types.ObjectOk)
@@ -68,7 +68,7 @@ namespace LoopCache.Client
             using (MemoryStream ms = new MemoryStream())
             {
                 BinaryWriter w = new BinaryWriter(ms);
-                byte[] keyBytes = Encoding.UTF8.GetBytes(key);
+                byte[] keyBytes = CacheBase.WriteHostName(key);
                 w.Write(IPAddress.HostToNetworkOrder(keyBytes.Length));
                 w.Write(keyBytes);
                 byte[] dataBytes = CacheBase.ToByteArray(value);
@@ -80,7 +80,7 @@ namespace LoopCache.Client
             }
 
             Request request = new Request(Request.Types.SetObject, key, data);
-            var response = base.SendNodeRequest(request);
+            var response = base.SendOrQueueNodeRequest(request);
 
             if (response == null)
                 return false;
@@ -93,8 +93,8 @@ namespace LoopCache.Client
         /// </summary>
         public bool Remove(string key)
         {
-            Request request = new Request(Request.Types.DeleteObject, key, Encoding.UTF8.GetBytes(key));
-            var response = base.SendNodeRequest(request);
+            Request request = new Request(Request.Types.DeleteObject, key, CacheBase.ToByteArray(key));
+            var response = base.SendOrQueueNodeRequest(request);
 
             if (response == null)
                 return false;

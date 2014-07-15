@@ -88,7 +88,7 @@ namespace LoopCache.Manager
                 long maxBytes = (long)(OneGB * modiifer);
                 this.CacheAdmin.AddNode(hostName, port, maxBytes);
 
-                this.UpdateRingStatus();
+                //this.UpdateRingStatus();
 
                 this.txtPort.Text = (port + 1).ToString();
             });
@@ -102,7 +102,7 @@ namespace LoopCache.Manager
                 int port = int.Parse(this.txtPort.Text);
                 this.CacheAdmin.RemoveNode(hostName, port);
 
-                this.UpdateRingStatus();
+                //this.UpdateRingStatus();
 
                 this.txtPort.Text = (port - 1).ToString();
             });
@@ -119,7 +119,7 @@ namespace LoopCache.Manager
 
                 this.CacheAdmin.ChangeNode(hostName, port, maxBytes);
 
-                this.UpdateRingStatus();
+                //this.UpdateRingStatus();
             });
         }
 
@@ -138,6 +138,8 @@ namespace LoopCache.Manager
         private Stats Clear(int start, int count, bool multiThread)
         {
             Stats s = new Stats();
+            s.Action = "Clear";
+
             this.CacheAdmin.Clear();
             return s;
         }
@@ -159,31 +161,37 @@ namespace LoopCache.Manager
                 start++;
             }
 
+            var exes = new System.Collections.Concurrent.ConcurrentBag<Exception>();
+            var nodes = CacheAdmin.Nodes.Values;
+            var parts = customers.Split(nodes.Count);
+
             Stats s = new Stats();
+            s.Action = "Push";
+
             Stopwatch watch = new Stopwatch();
             watch.Start();
 
             if (multiThread)
             {
-                Parallel.ForEach(customers, customer =>
+                Parallel.ForEach(parts, part =>
                 {
-                    try
+                    foreach (var customer in part)
                     {
-                        bool success = this.CacheAdmin.Set(customer.Item1, customer.Item2);
-
-                        if (success)
+                        try
+                        {
+                            this.CacheAdmin[customer.Item1] = customer.Item2;
                             Interlocked.Increment(ref s.successCount);
-                        else
+                            //Thread.Sleep(2);
+                        }
+                        catch (Exception ex)
+                        {
+                            exes.Add(ex);
                             Interlocked.Increment(ref s.failCount);
-                    }
-                    catch (Exception ex)
-                    {
-                        s.exceptions.Add(ex);
-                        Interlocked.Increment(ref s.failCount);
-                    }
-                    finally
-                    {
-                        Interlocked.Increment(ref s.totalCount);
+                        }
+                        finally
+                        {
+                            Interlocked.Increment(ref s.totalCount);
+                        }
                     }
                 });
             }
@@ -193,16 +201,12 @@ namespace LoopCache.Manager
                 {
                     try
                     {
-                        bool success = this.CacheAdmin.Set(customer.Item1, customer.Item2);
-
-                        if (success)
-                            s.successCount++;
-                        else
-                            s.failCount++;
+                        this.CacheAdmin[customer.Item1] = customer.Item2;
+                        s.successCount++;
                     }
                     catch (Exception ex)
                     {
-                        s.exceptions.Add(ex);
+                        s.exceptions.Add(ex);                        
                         s.failCount++;
                     }
                     finally
@@ -213,6 +217,9 @@ namespace LoopCache.Manager
             }
 
             watch.Stop();
+
+            if (multiThread)
+                s.exceptions = exes.ToList();
 
             s.totalCount = count;
             s.span = watch.Elapsed;
@@ -231,31 +238,37 @@ namespace LoopCache.Manager
                 start++;
             }
 
+            var exes = new System.Collections.Concurrent.ConcurrentBag<Exception>();
+            var nodes = CacheAdmin.Nodes.Values;
+            var parts = keys.Split(nodes.Count);
+
             Stats s = new Stats();
+            s.Action = "Pull";
+
             Stopwatch watch = new Stopwatch();
             watch.Start();
 
             if (multiThread)
             {
-                Parallel.ForEach(keys, key =>
+                Parallel.ForEach(parts, part =>
                 {
-                    try
+                    foreach (var key in part)
                     {
-                        var customer = this.CacheAdmin.Get(key);
-
-                        if (customer == null)
-                            Interlocked.Increment(ref s.failCount);
-                        else
+                        try
+                        {
+                            var customer = this.CacheAdmin[key];
                             Interlocked.Increment(ref s.successCount);
-                    }
-                    catch (Exception ex)
-                    {
-                        s.exceptions.Add(ex);
-                        Interlocked.Increment(ref s.failCount);
-                    }
-                    finally
-                    {
-                        Interlocked.Increment(ref s.totalCount);
+                            //Thread.Sleep(2);
+                        }
+                        catch (Exception ex)
+                        {
+                            exes.Add(ex);
+                            Interlocked.Increment(ref s.failCount);
+                        }
+                        finally
+                        {
+                            Interlocked.Increment(ref s.totalCount);
+                        }
                     }
                 });
             }
@@ -265,12 +278,8 @@ namespace LoopCache.Manager
                 {
                     try
                     {
-                        var customer = this.CacheAdmin.Get(key);
-
-                        if (customer == null)
-                            s.failCount++;
-                        else
-                            s.successCount++;
+                        var customer = this.CacheAdmin[key];
+                        s.successCount++;
                     }
                     catch (Exception ex)
                     {
@@ -285,6 +294,9 @@ namespace LoopCache.Manager
             }
 
             watch.Stop();
+
+            if (multiThread)
+                s.exceptions = exes.ToList();
 
             s.totalCount = count;
             s.span = watch.Elapsed;
@@ -307,6 +319,7 @@ namespace LoopCache.Manager
             MethodInvoker uiUpdater = delegate
             {
                 StringBuilder builder = new StringBuilder();
+                builder.AppendFormat("Action......{0}\r\n", stats.Action);
                 builder.AppendFormat("Success.....{0}\r\n", stats.successCount);
                 builder.AppendFormat("Failure.....{0}\r\n", stats.failCount);
                 builder.AppendFormat("Total.......{0}\r\n", stats.totalCount);
@@ -322,15 +335,19 @@ namespace LoopCache.Manager
 
                 foreach (Exception ex in stats.exceptions)
                 {
-                    lineNum = new StackTrace(ex, true).GetFrame(0).GetFileLineNumber();
-
                     builder.Append(exNum);
-                    builder.Append(". ");
-                    builder.Append(lineNum);
-                    builder.Append(" - ");
-                    builder.Append(ex.TargetSite);
-                    builder.Append(" - ");
-                    builder.Append(ex.Message);
+                    
+                    if (ex != null)
+                    {
+                        lineNum = new StackTrace(ex, true).GetFrame(0).GetFileLineNumber();
+                        builder.Append(". ");
+                        builder.Append(ex.TargetSite);
+                        builder.Append(" - ");
+                        builder.Append(lineNum);
+                        builder.Append(" - ");
+                        builder.Append(ex.Message);
+                    }
+
                     builder.Append("\r\n");
                     exNum++;
                 }
@@ -354,12 +371,11 @@ namespace LoopCache.Manager
             {
                 this.lstNodes.Items.Clear(); 
                 StringBuilder builder;
-                Node n;
 
                 double maxGB;
                 double latGB;
 
-                List<Node> nodes = CacheAdmin.GetRingStats();
+                var nodes = CacheAdmin.GetRingStats();
 
                 foreach (var node in nodes)
                 {
@@ -368,7 +384,7 @@ namespace LoopCache.Manager
 
                     double per = 0;
 
-                    if (node.MaxNumBytes > 0)
+                    if (maxGB > 0)
                         per = (latGB / maxGB);
 
                     builder = new StringBuilder();
@@ -403,7 +419,7 @@ namespace LoopCache.Manager
             this.btnPull.Enabled = connected;
             this.btnClear.Enabled = connected;
             this.timer1.Enabled = connected;
-            this.timer1.Interval = 5000;
+            this.timer1.Interval = 10000;
             this.pnlMaster.Text = (connected ? "Master (Set)" : "Master (Not Set)");
 
             if (connected)
@@ -442,6 +458,7 @@ namespace LoopCache.Manager
 
         private class Stats
         {
+            public string Action = "Not Set";
             public int successCount = 0;
             public int failCount = 0;
             public int totalCount = 0;
@@ -451,6 +468,18 @@ namespace LoopCache.Manager
             {
                 get { return (totalCount / span.TotalSeconds); }
             }
+        }
+    }
+
+    static class LinqExtensions
+    {
+        public static IEnumerable<IEnumerable<T>> Split<T>(this IEnumerable<T> list, int parts)
+        {
+            int i = 0;
+            var splits = from item in list
+                         group item by i++ % parts into part
+                         select part.AsEnumerable();
+            return splits;
         }
     }
 }

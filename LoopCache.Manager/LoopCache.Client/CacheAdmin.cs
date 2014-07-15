@@ -53,7 +53,7 @@ namespace LoopCache.Admin
             {
                 BinaryWriter w = new BinaryWriter(ms);
 
-                byte[] hostBytes = CacheBase.ToByteArray(hostname);
+                byte[] hostBytes = CacheBase.WriteHostName(hostname);
                 w.Write(IPAddress.HostToNetworkOrder(hostBytes.Length));
                 w.Write(hostBytes);
                 w.Write(IPAddress.HostToNetworkOrder(port));
@@ -98,7 +98,7 @@ namespace LoopCache.Admin
             {
                 BinaryWriter w = new BinaryWriter(ms);
 
-                byte[] hostBytes = CacheBase.ToByteArray(hostname);
+                byte[] hostBytes = CacheBase.WriteHostName(hostname);
                 w.Write(IPAddress.HostToNetworkOrder(hostBytes.Length));
                 w.Write(hostBytes);
                 w.Write(IPAddress.HostToNetworkOrder(port));
@@ -138,7 +138,7 @@ namespace LoopCache.Admin
             {
                 BinaryWriter w = new BinaryWriter(ms);
 
-                byte[] hostBytes = CacheBase.ToByteArray(hostname);
+                byte[] hostBytes = CacheBase.WriteHostName(hostname);
                 w.Write(IPAddress.HostToNetworkOrder(hostBytes.Length));
                 w.Write(hostBytes);
                 w.Write(IPAddress.HostToNetworkOrder(port));
@@ -157,17 +157,26 @@ namespace LoopCache.Admin
             return (response.Type != Response.Types.Accepted);
         }
 
-        public List<Node> GetRingStats()
+        public Node[] GetRingStats()
         {
-            List<Node> returnValue = new List<Node>();
+            Node[] nodes = new Node[0];            
+            
+            if ( CacheBase.Nodes != null )
+            {
+                int len = CacheBase.Nodes.Values.Count;
+                nodes = new Node[len];
 
-            foreach (var node in CacheBase.Nodes)
-                returnValue.Add(new Node(node.Value.HostName, node.Value.Port));
+                for (int i = 0; i < len; i++)
+                    nodes[i] = CacheBase.Nodes.Values[i];
 
-            return returnValue;
+                foreach (var node in nodes)
+                    this.GetNodeStats(node);
+            }
+
+            return nodes;
         }
 
-        private Node GetNodeStats(string hostname, int port)
+        private void GetNodeStats(Node node)
         {
             // NumObjects       int
             // TotalDataBytes   long
@@ -181,14 +190,12 @@ namespace LoopCache.Admin
             //      3=Questionable
             //      4=Migrating
             Request request = new Request(Request.Types.GetStats);
-            Response response = base.SendRequest(hostname, port, request);
-
-            Node returnValue = new Node(hostname, port);
+            Response response = base.SendRequest(node.HostName, node.Port, request);
 
             if (response == null || response.Data.Length == 0)
             {
-                returnValue.Status = Node.StatusType.Questionable;
-                return returnValue;
+                node.Status = Node.StatusType.Questionable;
+                return;
             }
 
             if (response.Data.Length > 0)
@@ -197,9 +204,9 @@ namespace LoopCache.Admin
                 {
                     using (BinaryReader reader = new BinaryReader(ms))
                     {
-                        returnValue.NumObjects = CacheBase.Read(reader.ReadInt32());
-                        returnValue.TotalDataBytes = CacheBase.Read(reader.ReadInt64());
-                        returnValue.LatestRAMBytes = CacheBase.Read(reader.ReadInt64());
+                        node.NumObjects = CacheBase.Read(reader.ReadInt32());
+                        node.TotalDataBytes = CacheBase.Read(reader.ReadInt64());
+                        node.LatestRAMBytes = CacheBase.Read(reader.ReadInt64());
 
                         int readLen = CacheBase.Read(reader.ReadInt32());
                         byte[] tempData = new byte[readLen];
@@ -207,16 +214,14 @@ namespace LoopCache.Admin
                         if (reader.Read(tempData, 0, readLen) != readLen)
                             throw new Exception("Invalid RAM Multipler Data");
 
-                        string temp = CacheBase.Read(tempData);
-                        returnValue.RAMMultiplier = decimal.Parse(temp);
+                        //string temp = CacheBase.ReadHostName(tempData);
+                        //node.RAMMultiplier = decimal.Parse(temp);
 
-                        returnValue.MaxNumBytes = CacheBase.Read(reader.ReadInt64());
-                        returnValue.Status = (Node.StatusType)reader.ReadByte();
+                        node.MaxNumBytes = CacheBase.Read(reader.ReadInt64());
+                        node.Status = (Node.StatusType)reader.ReadByte();
                     }
                 }
             }
-
-            return returnValue;
         }
 
         public bool Clear()

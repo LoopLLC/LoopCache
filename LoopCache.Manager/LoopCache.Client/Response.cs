@@ -24,7 +24,14 @@ namespace LoopCache.Client
             EndPointMismatch = 12,
             NodeExists = 13,
             Accepted = 14,
-            DataNodeNotReady = 15
+            DataNodeNotReady = 15,
+            Queued = 16
+        }
+
+        public Response(Types type)
+        {
+            this.Type = type;
+            this.Data = null;
         }
 
         public Response(Types type, byte[] data)

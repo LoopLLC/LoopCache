@@ -235,7 +235,6 @@ namespace LoopCacheLib
         /// </summary>
         public const string DeletesPerSecond = "Deletes/sec";
 
-
         static string performanceCategory = "LoopCache";
 
         static string[] performanceCounters = { 

@@ -85,7 +85,7 @@
             this.txtPort.Name = "txtPort";
             this.txtPort.Size = new System.Drawing.Size(60, 20);
             this.txtPort.TabIndex = 2;
-            this.txtPort.Text = "12345";
+            this.txtPort.Text = "7710";
             // 
             // txtModifier
             // 
@@ -102,7 +102,7 @@
             this.lstNodes.ItemHeight = 16;
             this.lstNodes.Location = new System.Drawing.Point(6, 54);
             this.lstNodes.Name = "lstNodes";
-            this.lstNodes.Size = new System.Drawing.Size(405, 324);
+            this.lstNodes.Size = new System.Drawing.Size(405, 164);
             this.lstNodes.TabIndex = 4;
             // 
             // btnRemoveNode
@@ -126,7 +126,7 @@
             this.groupBox1.Controls.Add(this.txtModifier);
             this.groupBox1.Location = new System.Drawing.Point(12, 67);
             this.groupBox1.Name = "groupBox1";
-            this.groupBox1.Size = new System.Drawing.Size(417, 388);
+            this.groupBox1.Size = new System.Drawing.Size(417, 224);
             this.groupBox1.TabIndex = 8;
             this.groupBox1.TabStop = false;
             this.groupBox1.Text = "Ring";
@@ -158,12 +158,11 @@
             this.groupBox2.Controls.Add(this.btnPull);
             this.groupBox2.Controls.Add(this.txtSeed);
             this.groupBox2.Controls.Add(this.txtStatus);
-            this.groupBox2.Controls.Add(this.txtException);
             this.groupBox2.Controls.Add(this.txtObjectCount);
             this.groupBox2.Controls.Add(this.btnPushData);
             this.groupBox2.Location = new System.Drawing.Point(435, 12);
             this.groupBox2.Name = "groupBox2";
-            this.groupBox2.Size = new System.Drawing.Size(535, 443);
+            this.groupBox2.Size = new System.Drawing.Size(535, 279);
             this.groupBox2.TabIndex = 9;
             this.groupBox2.TabStop = false;
             this.groupBox2.Text = "Test";
@@ -233,16 +232,17 @@
             this.txtStatus.Location = new System.Drawing.Point(6, 50);
             this.txtStatus.Multiline = true;
             this.txtStatus.Name = "txtStatus";
-            this.txtStatus.Size = new System.Drawing.Size(523, 141);
+            this.txtStatus.Size = new System.Drawing.Size(523, 223);
             this.txtStatus.TabIndex = 3;
             // 
             // txtException
             // 
             this.txtException.ForeColor = System.Drawing.Color.Red;
-            this.txtException.Location = new System.Drawing.Point(6, 197);
+            this.txtException.Location = new System.Drawing.Point(12, 297);
             this.txtException.Multiline = true;
             this.txtException.Name = "txtException";
-            this.txtException.Size = new System.Drawing.Size(523, 240);
+            this.txtException.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
+            this.txtException.Size = new System.Drawing.Size(958, 180);
             this.txtException.TabIndex = 2;
             // 
             // txtObjectCount
@@ -286,7 +286,7 @@
             this.txtMasterPort.Name = "txtMasterPort";
             this.txtMasterPort.Size = new System.Drawing.Size(151, 20);
             this.txtMasterPort.TabIndex = 1;
-            this.txtMasterPort.Text = "12345";
+            this.txtMasterPort.Text = "7709";
             // 
             // txtMasterHostName
             // 
@@ -304,6 +304,7 @@
             this.Controls.Add(this.pnlMaster);
             this.Controls.Add(this.groupBox2);
             this.Controls.Add(this.groupBox1);
+            this.Controls.Add(this.txtException);
             this.Name = "Form1";
             this.Text = "Loop Cache Manager";
             this.groupBox1.ResumeLayout(false);
@@ -313,6 +314,7 @@
             this.pnlMaster.ResumeLayout(false);
             this.pnlMaster.PerformLayout();
             this.ResumeLayout(false);
+            this.PerformLayout();
 
         }
 

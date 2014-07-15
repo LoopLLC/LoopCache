@@ -314,20 +314,20 @@ namespace LoopCacheConsole
             //  Master
             //  
             config.MasterHostName = localHost;
-            config.MasterPortNumber = 12345;
+            config.MasterPortNumber = 7709;
             config.Ring = new CacheRing();
             //
             //  Listener
             //
             config.ListenerHostName = localHost;
             config.ListenerIP = "127.0.0.1";
-            config.ListenerPortNumber = 12345;
+            config.ListenerPortNumber = 7709;
             config.IsMaster = true;
             //
             //  Trace
             //
             config.IsTraceEnabled = false;
-            config.TraceFilePath = "D:\\CacheSupport\\Logs\\Master_12345.txt";
+            config.TraceFilePath = string.Format("D:\\CacheSupport\\Logs\\Master_{0}.txt", 7710);
 
             return config;
         }
@@ -341,7 +341,7 @@ namespace LoopCacheConsole
             //  Master
             //  
             config.MasterHostName = localHost;
-            config.MasterPortNumber = 12345;
+            config.MasterPortNumber = 7709;
             config.ListenerHostName = localHost;
             config.ListenerIP = "127.0.0.1";
             config.ListenerPortNumber = portNumber;

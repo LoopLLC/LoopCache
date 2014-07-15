@@ -67,7 +67,7 @@ namespace LoopCache.Client
         public int NumObjects { get; set; }
         public long TotalDataBytes { get; set; }
         public long LatestRAMBytes { get; set; }
-        public decimal RAMMultiplier { get; set; }
+        //public decimal RAMMultiplier { get; set; }
         public long MaxNumBytes { get; set; }
         public string HostName { get; private set; }
         public int Port { get; private set; }

@@ -23,7 +23,16 @@ namespace LoopCache.Client
         {
             this.MasterHostName = masterHostName;
             this.MasterPort = masterPort;
+            this.queue = new List<Request>();
+
+            this.queueThread = new System.Threading.Thread(SendNodeRequestManager);
+            this.queueThread.Start();
         }
+
+        private System.Threading.Thread queueThread;
+        private List<Request> queue;
+
+        private bool useQueue = true;
 
         /// <summary>
         /// This method will try 3 times to connect with the node, 
@@ -31,7 +40,64 @@ namespace LoopCache.Client
         /// <param name="key"></param>
         /// <param name="request"></param>
         /// <returns></returns>
-        protected Response SendNodeRequest(Request request)
+        protected Response SendOrQueueNodeRequest(Request request)
+        {
+            if (CacheBase.Nodes.Count == 0)
+                this.GetConfig();
+
+            Response response;
+
+            if (useQueue)
+            {
+                switch (request.Type)
+                {
+                    case Request.Types.SetObject:
+                    case Request.Types.DeleteObject:
+                        //
+                        //  Sets and Deletes can be queued.
+                        //
+                        //this.queue.Add(request);
+
+                        System.Threading.Tasks.Task.Run(() =>
+                        {
+                            this.SendNodeRequest(request);
+                        });
+
+                        response = new Response(Response.Types.Queued);
+                        break;
+
+                    default:
+                        response = this.SendNodeRequest(request);
+                        break;
+                }
+            }
+            else
+            {
+                response = this.SendNodeRequest(request);
+            }
+            
+            return response;
+        }
+
+        private void SendNodeRequestManager()
+        {
+            while (queue.Count > 0)
+            {
+                System.Threading.Thread.Sleep(1);
+
+                Request request = queue[0];
+
+                if (request != null)
+                    this.SendNodeRequest(request);
+                 
+                queue.RemoveAt(0);
+            }
+
+            System.Threading.Thread.Sleep(1000);
+            this.SendNodeRequestManager();
+        }
+
+        private Response SendNodeRequest(Request request)
         {
             Response response = null;
             //
@@ -41,7 +107,6 @@ namespace LoopCache.Client
             //  Retry with the new configuration.
             //
             Node node = CacheBase.GetNodeForKey(request.Key);
-            bool success = false;
 
             for (int i = 0; i < 3; i++)
             {
@@ -52,39 +117,38 @@ namespace LoopCache.Client
                     //
                     //  Distination unreachable.
                     //      Ask the master if the node is really down.
-                    response = this.NodeUnreachable(node.HostName, node.Port);
+                    //response = this.NodeUnreachable(node.HostName, node.Port);
 
-                    switch (response.Type)
-                    {
-                        case Response.Types.Accepted:
-                            //
-                            //  The node is in fact gone. BOOM!
-                            //
-                            break;
+                    //if (response == null)
+                    //    throw new Exception("No response from Master");                        
 
-                        case Response.Types.NodeExists:
+                    //switch (response.Type)
+                    //{
+                    //    case Response.Types.Accepted:
+                    //        //
+                    //        //  The node is in fact gone. BOOM!
+                    //        //
+                    //        break;
+
+                    //    case Response.Types.NodeExists:
                             //
                             //  Master says the node is fine.
                             //  Wait a tick and try again.
-                            //
-                            System.Threading.Thread.Sleep(50);
-                            continue;
+                            //                            
+                            System.Threading.Thread.Sleep(5000);
+                    //        continue;
 
-                        default:
-                            string ex = string.Format(
-                                "Unexpected {0} response for request {1}.",
-                                response.Type,
-                                request.Data
-                            );
-                            throw new Exception(ex);
-                    }
+                    //    default:
+                    //        this.UnexpectedResponse(response.Type, request.Type);
+                    //        break;
+                    //}
                 }
                 else
                 {
                     switch (response.Type)
                     {
                         case Response.Types.ObjectOk:
-                            success = true;
+                        case Response.Types.ObjectMissing:
                             break;
 
                         case Response.Types.ReConfigure:
@@ -101,22 +165,25 @@ namespace LoopCache.Client
                             continue;
 
                         default:
-                            string ex = string.Format(
-                                "Unexpected {0} response for request {1}.",
-                                response.Type,
-                                request.Data
-                            );
-                            throw new Exception(ex);
+                            this.UnexpectedResponse(response.Type, request.Type);
+                            break;
                     }
                 }
 
                 break;
             }
 
-            if (!success)
-                throw new Exception("Cache Node is not available.");
-
             return response;
+        }
+
+        private void UnexpectedResponse(Response.Types responseType, Request.Types requestType)
+        {
+            string ex = string.Format( 
+                "Unexpected {0} response for request {1}.",
+                responseType,
+                requestType
+            );
+            throw new Exception(ex);
         }
 
         protected Response SendRequest(string hostname, int port, Request request)
@@ -129,6 +196,9 @@ namespace LoopCache.Client
                 {
                     try
                     {
+                        //client.ReceiveTimeout = 5000;
+                        client.SendTimeout = 5000;
+
                         client.Connect(ipep);
 
                         using (NetworkStream stream = client.GetStream())
@@ -165,60 +235,73 @@ namespace LoopCache.Client
 
         private void ReadConfigBytes(byte[] data)
         {
-            CacheBase.RingNodes = new SortedList<int, Node>();
-            CacheBase.Nodes = new SortedList<string, Node>();
-
-            if (data.Length > 0)
+            try
             {
-                using (MemoryStream ms = new MemoryStream(data))
+                CacheBase.RingNodes = new SortedList<int, Node>();
+                CacheBase.Nodes = new SortedList<string, Node>();
+
+                if (data.Length > 0)
                 {
-                    using (BinaryReader reader = new BinaryReader(ms))
+                    using (MemoryStream ms = new MemoryStream(data))
                     {
-                        int numNodes = CacheBase.Read(reader.ReadInt32());
-                        for (int n = 0; n < numNodes; n++)
+                        using (BinaryReader reader = new BinaryReader(ms))
                         {
-                            int hostLen = CacheBase.Read(reader.ReadInt32());
-                            byte[] hostData = new byte[hostLen];
-                            if (reader.Read(hostData, 0, hostLen) != hostLen)
-                                throw new Exception("Invalid GetConfig hostData");
-
-                            string hostname = CacheBase.Read(hostData);
-                            int port = CacheBase.Read(reader.ReadInt32());
-                            long maxNumBytes = CacheBase.Read(reader.ReadInt64());
-
-                            Node node = new Node(
-                                hostname,
-                                port,
-                                maxNumBytes,
-                                (Node.StatusType)reader.ReadByte()
-                            );
-
-                            CacheBase.Nodes.Add(node.Name, node);
-
-                            bool parseLocations = reader.ReadBoolean();
-
-                            if (parseLocations)
+                            Node node;
+                            int numNodes = CacheBase.Read(reader.ReadInt32());
+                            for (int n = 0; n < numNodes; n++)
                             {
-                                try
-                                {
-                                    int numLocations = CacheBase.Read(reader.ReadInt32());
-                                    int location;
-                                    for (int i = 0; i < numLocations; i++)
-                                    {
-                                        location = CacheBase.Read(reader.ReadInt32());
+                                int hostLen = CacheBase.Read(reader.ReadInt32());
+                                byte[] hostData = new byte[hostLen];
+                                if (reader.Read(hostData, 0, hostLen) != hostLen)
+                                    throw new Exception("Invalid GetConfig hostData");
 
-                                        if (!CacheBase.RingNodes.ContainsKey(location))
-                                            CacheBase.RingNodes.Add(location, node);
-                                    }
-                                }
-                                catch (Exception ex)
+                                string hostname = CacheBase.ReadHostName(hostData);
+                                int port = CacheBase.Read(reader.ReadInt32());
+                                long maxNumBytes = CacheBase.Read(reader.ReadInt64());
+
+                                node = new Node(
+                                    hostname,
+                                    port,
+                                    maxNumBytes,
+                                    (Node.StatusType)reader.ReadByte()
+                                );
+
+                                CacheBase.Nodes[node.Name] = node;
+
+                                bool parseLocations = reader.ReadBoolean();
+
+                                if (parseLocations)
                                 {
-                                    string s = ex.Message;
+                                    try
+                                    {
+                                        int numLocations = CacheBase.Read(reader.ReadInt32());
+                                        int location;
+
+                                        for (int i = 0; i < numLocations; i++)
+                                        {
+                                            location = CacheBase.Read(reader.ReadInt32());
+                                            CacheBase.RingNodes[location] = node;
+                                        }
+                                    }
+                                    catch
+                                    {
+                                        string message = "Error reading location Data.";
+                                        throw new Exception(message);
+                                    }
                                 }
                             }
                         }
                     }
                 }
+            }
+            catch (Exception exo)
+            {
+                string message = string.Format(
+                    "Error reading config Data. {0}",
+                    exo.Message
+                );
+
+                throw new Exception(message);
             }
         }
 
@@ -271,7 +354,7 @@ namespace LoopCache.Client
             {
                 BinaryWriter w = new BinaryWriter(ms);
 
-                byte[] hostBytes = CacheBase.ToByteArray(hostname);
+                byte[] hostBytes = CacheBase.WriteHostName(hostname);
                 w.Write(IPAddress.HostToNetworkOrder(hostBytes.Length));
                 w.Write(hostBytes);
                 w.Write(IPAddress.HostToNetworkOrder(port));
@@ -297,7 +380,7 @@ namespace LoopCache.Client
         /// <summary>
         /// A list of "host:port" => Node
         /// </summary>
-        protected static SortedList<string, Node> Nodes;
+        public static SortedList<string, Node> Nodes;
 
         private static int MaxLength = 1024 * 1024; // 1Mb
         private static Dictionary<string, int> hashCodes = new Dictionary<string, int>();
@@ -361,7 +444,9 @@ namespace LoopCache.Client
             {
                 if (keys[i] >= hashCode)
                 {
-                    returnValue = CacheBase.RingNodes[keys[i]];
+                    if ( CacheBase.RingNodes.ContainsKey(keys[i]))
+                        returnValue = CacheBase.RingNodes[keys[i]];
+
                     break;
                 }
             }
@@ -398,9 +483,14 @@ namespace LoopCache.Client
             return returnValue;
         }
 
-        protected static byte[] ToByteArray(string s)
+        protected static byte[] WriteHostName(string s)
         {
             return Encoding.UTF8.GetBytes(s);
+        }
+
+        protected static string ReadHostName(byte[] b)
+        {
+            return Encoding.UTF8.GetString(b);
         }
 
         protected static byte[] ToByteArray(object o)
@@ -433,11 +523,6 @@ namespace LoopCache.Client
             }
         }
 
-        protected static string Read(byte[] b)
-        {
-            return Encoding.UTF8.GetString(b);
-        }
-
         protected static int Read(int i)
         {
             return IPAddress.NetworkToHostOrder(i);
@@ -448,6 +533,13 @@ namespace LoopCache.Client
             return IPAddress.NetworkToHostOrder(i);
         }
 
+        protected static int? TryRead()
+        {
+            return null;
+        }
+
         #endregion
+    
+    
     }
 }
